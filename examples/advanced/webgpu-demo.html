@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ONNX Web Framework - WebGPU Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        .panel h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .capability {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .capability:last-child {
+            border-bottom: none;
+        }
+        .status {
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: bold;
+        }
+        .status.supported {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.not-supported {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        .status.unknown {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 15px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: white;
+            min-height: 100px;
+        }
+        .performance {
+            font-family: monospace;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>ONNX Web Framework - WebGPU & Advanced Features Demo</h1>
+
+    <div class="warning">
+        <strong>Note:</strong> WebGPU support is experimental and requires a compatible browser and GPU.
+        This demo also showcases I/O binding capabilities.
+    </div>
+
+    <div class="container">
+        <div class="panel">
+            <h2>Device Capabilities</h2>
+            <div id="capabilities">
+                <div class="capability">
+                    <span>WebGL</span>
+                    <span id="webgl-status" class="status unknown">Checking...</span>
+                </div>
+                <div class="capability">
+                    <span>WebGPU</span>
+                    <span id="webgpu-status" class="status unknown">Checking...</span>
+                </div>
+                <div class="capability">
+                    <span>WebNN</span>
+                    <span id="webnn-status" class="status unknown">Checking...</span>
+                </div>
+                <div class="capability">
+                    <span>Hardware Concurrency</span>
+                    <span id="hw-concurrency">-</span>
+                </div>
+                <div class="capability">
+                    <span>Memory (MB)</span>
+                    <span id="memory">-</span>
+                </div>
+            </div>
+
+            <h3>Framework Configuration</h3>
+            <button id="initWasm">Initialize WASM</button>
+            <button id="initWebGL">Initialize WebGL</button>
+            <button id="initWebGPU">Initialize WebGPU</button>
+            <button id="initWebNN">Initialize WebNN</button>
+        </div>
+
+        <div class="panel">
+            <h2>Inference Testing</h2>
+            <div>
+                <button id="loadModel" disabled>Load Test Model</button>
+                <button id="runStandard" disabled>Standard Inference</button>
+                <button id="runIOBinding" disabled>I/O Binding</button>
+                <button id="benchmark" disabled>Benchmark (100x)</button>
+            </div>
+
+            <div id="results" class="results" style="display: none;">
+                <h3>Results</h3>
+                <div id="output"></div>
+                <div id="performance" class="performance"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import ONNXWebFramework from '../../src/index.js';
+
+        let framework = null;
+        let currentBackend = null;
+        let webgpuDevice = null;
+
+        // DOM elements
+        const elements = {
+            webglStatus: document.getElementById('webgl-status'),
+            webgpuStatus: document.getElementById('webgpu-status'),
+            webnnStatus: document.getElementById('webnn-status'),
+            hwConcurrency: document.getElementById('hw-concurrency'),
+            memory: document.getElementById('memory'),
+            loadModel: document.getElementById('loadModel'),
+            runStandard: document.getElementById('runStandard'),
+            runIOBinding: document.getElementById('runIOBinding'),
+            benchmark: document.getElementById('benchmark'),
+            results: document.getElementById('results'),
+            output: document.getElementById('output'),
+            performance: document.getElementById('performance')
+        };
+
+        // Check device capabilities
+        async function checkCapabilities() {
+            const capabilities = {
+                webgl: !!document.createElement('canvas').getContext('webgl2'),
+                webgpu: !!navigator.gpu,
+                webnn: !!navigator.ml,
+                hwConcurrency: navigator.hardwareConcurrency || 'unknown'
+            };
+
+            // Update status displays
+            updateStatus('webglStatus', capabilities.webgl);
+            updateStatus('webgpuStatus', capabilities.webgpu);
+            updateStatus('webnnStatus', capabilities.webnn);
+
+            elements.hwConcurrency.textContent = capabilities.hwConcurrency;
+
+            // Check memory if available
+            if ('memory' in performance) {
+                const memory = performance.memory;
+                elements.memory.textContent = `${(memory.usedJSHeapSize / 1024 / 1024).toFixed(1)} / ${(memory.jsHeapSizeLimit / 1024 / 1024).toFixed(1)}`;
+            }
+        }
+
+        function updateStatus(elementId, supported) {
+            const element = elements[elementId];
+            if (supported) {
+                element.textContent = 'Supported';
+                element.className = 'status supported';
+            } else {
+                element.textContent = 'Not Supported';
+                element.className = 'status not-supported';
+            }
+        }
+
+        async function initializeFramework(backend) {
+            try {
+                console.log(`Initializing framework with ${backend} backend...`);
+
+                const config = {
+                    executionProviders: [backend],
+                    enableProfiling: true,
+                    debug: true
+                };
+
+                if (backend === 'webnn') {
+                    config.deviceType = 'gpu';
+                    config.powerPreference = 'high-performance';
+                }
+
+                framework = new ONNXWebFramework(config);
+                await framework.initialize();
+                currentBackend = backend;
+
+                // Get WebGPU device if available
+                if (backend === 'webgpu' && framework.getWebGPUDevice) {
+                    webgpuDevice = framework.getWebGPUDevice();
+                }
+
+                elements.loadModel.disabled = false;
+                console.log(`Framework initialized with ${backend} backend`);
+
+            } catch (error) {
+                console.error(`Failed to initialize ${backend} backend:`, error);
+                alert(`Failed to initialize ${backend} backend: ${error.message}`);
+            }
+        }
+
+        async function loadModel() {
+            try {
+                elements.loadModel.disabled = true;
+                console.log('Loading test model...');
+
+                // Mock model URL - replace with actual model
+                const modelUrl = 'https://huggingface.co/onnx/models/resolve/main/mobilenetv2-7.onnx';
+
+                await framework.loadModel('test-model', modelUrl, {
+                    sessionOptions: {
+                        graphOptimizationLevel: 'all'
+                    }
+                });
+
+                elements.runStandard.disabled = false;
+                elements.benchmark.disabled = false;
+
+                if (currentBackend === 'webgpu' || currentBackend === 'webnn') {
+                    elements.runIOBinding.disabled = false;
+                }
+
+                console.log('Model loaded successfully');
+
+            } catch (error) {
+                console.error('Failed to load model:', error);
+                alert(`Failed to load model: ${error.message}`);
+                elements.loadModel.disabled = false;
+            }
+        }
+
+        async function runStandardInference() {
+            await performInference(false);
+        }
+
+        async function runIOBindingInference() {
+            await performInference(true);
+        }
+
+        async function performInference(useIOBinding) {
+            try {
+                const inputData = new Float32Array(224 * 224 * 3).fill(Math.random());
+                const options = {
+                    preprocess: {
+                        normalization: 'zeroToOne'
+                    }
+                };
+
+                if (useIOBinding && currentBackend === 'webgpu' && webgpuDevice) {
+                    // Create GPU buffer for I/O binding
+                    const bufferSize = inputData.byteLength;
+                    const gpuBuffer = webgpuDevice.createBuffer({
+                        size: bufferSize,
+                        usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC
+                    });
+
+                    // Write data to GPU buffer
+                    webgpuDevice.queue.writeBuffer(gpuBuffer, 0, inputData);
+
+                    // Create GPU tensor
+                    const gpuTensor = await framework.createGpuTensor(gpuBuffer, {
+                        dataType: 'float32',
+                        dims: [1, 3, 224, 224]
+                    });
+
+                    options.preferredOutputLocation = 'gpu-buffer';
+                    options.returnTensors = true;
+                    options.downloadGpuData = false;
+
+                    const result = await framework.predict('test-model', gpuTensor, options);
+
+                    displayResults(result, `${currentBackend.toUpperCase()} + I/O Binding`);
+                } else {
+                    const result = await framework.predict('test-model', inputData, options);
+                    displayResults(result, `${currentBackend.toUpperCase()} Standard`);
+                }
+
+            } catch (error) {
+                console.error('Inference failed:', error);
+                alert(`Inference failed: ${error.message}`);
+            }
+        }
+
+        async function runBenchmark() {
+            try {
+                elements.benchmark.disabled = true;
+                console.log('Running benchmark...');
+
+                const numRuns = 100;
+                const times = [];
+
+                for (let i = 0; i < numRuns; i++) {
+                    const inputData = new Float32Array(224 * 224 * 3).fill(Math.random());
+
+                    const startTime = performance.now();
+                    await framework.predict('test-model', inputData);
+                    const endTime = performance.now();
+
+                    times.push(endTime - startTime);
+
+                    if (i % 10 === 0) {
+                        console.log(`Completed ${i}/${numRuns} runs...`);
+                    }
+                }
+
+                const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
+                const minTime = Math.min(...times);
+                const maxTime = Math.max(...times);
+                const stdDev = Math.sqrt(times.reduce((sq, n) => sq + Math.pow(n - avgTime, 2), 0) / times.length);
+
+                displayResults({
+                    totalTime: avgTime,
+                    inferenceTime: avgTime,
+                    preprocessTime: 0
+                }, `${currentBackend.toUpperCase()} Benchmark (${numRuns} runs)`, {
+                    benchmark: {
+                        average: avgTime.toFixed(2),
+                        min: minTime.toFixed(2),
+                        max: maxTime.toFixed(2),
+                        stdDev: stdDev.toFixed(2),
+                        throughput: (1000 / avgTime).toFixed(2)
+                    }
+                });
+
+                elements.benchmark.disabled = false;
+
+            } catch (error) {
+                console.error('Benchmark failed:', error);
+                alert(`Benchmark failed: ${error.message}`);
+                elements.benchmark.disabled = false;
+            }
+        }
+
+        function displayResults(result, title, extra = {}) {
+            elements.results.style.display = 'block';
+
+            let html = `<strong>${title}</strong><br>`;
+
+            if (extra.benchmark) {
+                html += `
+                    <div style="margin-top: 10px;">
+                        <strong>Benchmark Results:</strong><br>
+                        Average: ${extra.benchmark.average}ms<br>
+                        Min: ${extra.benchmark.min}ms<br>
+                        Max: ${extra.benchmark.max}ms<br>
+                        Std Dev: ${extra.benchmark.stdDev}ms<br>
+                        Throughput: ${extra.benchmark.throughput} inferences/sec
+                    </div>
+                `;
+            } else {
+                html += `
+                    Total Time: ${result.totalTime.toFixed(2)}ms<br>
+                    Inference: ${result.inferenceTime.toFixed(2)}ms<br>
+                    Preprocessing: ${result.preprocessTime.toFixed(2)}ms
+                `;
+            }
+
+            elements.output.innerHTML = html;
+        }
+
+        // Event listeners
+        document.getElementById('initWasm').addEventListener('click', () => initializeFramework('wasm'));
+        document.getElementById('initWebGL').addEventListener('click', () => initializeFramework('webgl'));
+        document.getElementById('initWebGPU').addEventListener('click', () => initializeFramework('webgpu'));
+        document.getElementById('initWebNN').addEventListener('click', () => initializeFramework('webnn'));
+
+        elements.loadModel.addEventListener('click', loadModel);
+        elements.runStandard.addEventListener('click', runStandardInference);
+        elements.runIOBinding.addEventListener('click', runIOBindingInference);
+        elements.benchmark.addEventListener('click', runBenchmark);
+
+        // Initialize
+        checkCapabilities();
+    </script>
+</body>
+</html>

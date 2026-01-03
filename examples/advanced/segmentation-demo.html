@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ONNX 抠图模型演示</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+
+        .content {
+            padding: 30px;
+        }
+
+        .status {
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 500;
+        }
+
+        .status.loading {
+            background: #fef3c7;
+            color: #92400e;
+        }
+
+        .status.success {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        .status.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .controls {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 30px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #f3f4f6;
+            color: #374151;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .model-selector {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            padding: 10px;
+            background: #f9fafb;
+            border-radius: 8px;
+        }
+
+        .model-selector select {
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        .image-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .image-container {
+            background: #f9fafb;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .image-container h3 {
+            margin-bottom: 10px;
+            color: #374151;
+        }
+
+        .image-container canvas {
+            max-width: 100%;
+            height: auto;
+            border-radius: 6px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .file-upload {
+            margin-bottom: 20px;
+        }
+
+        .file-upload input[type="file"] {
+            padding: 10px;
+            border: 2px dashed #d1d5db;
+            border-radius: 8px;
+            width: 100%;
+            cursor: pointer;
+        }
+
+        .performance-info {
+            background: #f9fafb;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+
+        .performance-info h3 {
+            margin-bottom: 10px;
+            color: #374151;
+        }
+
+        .performance-metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+
+        .performance-metric:last-child {
+            border-bottom: none;
+        }
+
+        .log-container {
+            background: #1f2937;
+            color: #e5e7eb;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Monaco', 'Menlo', monospace;
+            font-size: 14px;
+            max-height: 300px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+
+        .log-entry.info {
+            color: #60a5fa;
+        }
+
+        .log-entry.success {
+            color: #34d399;
+        }
+
+        .log-entry.warning {
+            color: #fbbf24;
+        }
+
+        .log-entry.error {
+            color: #f87171;
+        }
+
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+            }
+
+            .image-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎭 RMBG 抠图演示</h1>
+            <p>使用 RMBG Quantized 模型进行高质量背景分离 | 模型来源: ModelScope</p>
+        </div>
+
+        <div class="content">
+            <div id="status" class="status loading">正在初始化...</div>
+
+            <div class="controls">
+                <button class="btn btn-primary" onclick="loadModel()" id="loadBtn" disabled>
+                    🌐 从 ModelScope 加载 RMBG 模型
+                </button>
+
+                <button class="btn btn-primary" onclick="processImage()" id="processBtn" disabled>
+                    ✨ 处理图片
+                </button>
+
+                
+                <button class="btn btn-secondary" onclick="useExampleImage()">
+                    📷 使用示例图片
+                </button>
+
+                <button class="btn btn-secondary" onclick="downloadHighResResult()" id="downloadBtn" disabled>
+                    💾 下载高清结果
+                </button>
+
+                <button class="btn btn-secondary" onclick="clearResults()">
+                    🗑️ 清除结果
+                </button>
+            </div>
+
+            <div class="file-upload">
+                <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(event)">
+                <p style="margin-top: 10px; color: #6b7280;">选择一张图片或点击"使用示例图片"</p>
+            </div>
+
+            <div class="image-grid">
+                <div class="image-container">
+                    <h3>📸 原始图片</h3>
+                    <canvas id="originalCanvas"></canvas>
+                </div>
+
+                <div class="image-container">
+                    <h3>🎭 抠图结果</h3>
+                    <canvas id="resultCanvas"></canvas>
+                </div>
+
+                <div class="image-container">
+                    <h3>🖼️ 蒙版</h3>
+                    <canvas id="maskCanvas"></canvas>
+                </div>
+            </div>
+
+            <div class="performance-info" id="performanceInfo" style="display: none;">
+                <h3>📊 性能信息</h3>
+                <div class="performance-metric">
+                    <span>模型加载时间:</span>
+                    <span id="loadTime">-</span>
+                </div>
+                <div class="performance-metric">
+                    <span>图片处理时间:</span>
+                    <span id="processTime">-</span>
+                </div>
+                <div class="performance-metric">
+                    <span>模型格式:</span>
+                    <span id="modelFormat">-</span>
+                </div>
+                <div class="performance-metric">
+                    <span>执行提供者:</span>
+                    <span id="executionProvider">-</span>
+                </div>
+            </div>
+
+            <div class="log-container" id="logContainer">
+                <div class="log-entry info">系统准备就绪...</div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import ONNXWebFramework from '../src/onnx-web-framework.js';
+
+        // 全局变量
+        let framework = null;
+        let currentModel = null;
+        let currentImageData = null;
+        
+        
+        
+        // 日志系统
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+            console.log(`[${type.toUpperCase()}] ${message}`);
+        }
+
+        // 更新状态
+        function showStatus(message, type = 'info') {
+            const statusElement = document.getElementById('status');
+            statusElement.textContent = message;
+            statusElement.className = `status ${type}`;
+        }
+
+        // 初始化框架
+        async function initializeFramework() {
+            try {
+                log('开始初始化 ONNX Web Framework...', 'info');
+
+                framework = new ONNXWebFramework({
+                    executionProviders: ['wasm', 'webgl', 'webgpu'],  // 启用多个执行提供者
+                    enableProfiling: true,  // 启用性能分析
+                    debug: true,
+                    useWorker: true,  // 启用Worker
+                    workerPath: '../src/onnx-worker.js'  // 正确的Worker路径
+                });
+
+                // 调试：检查选项是否正确设置
+                log(`配置调试: useWorker=${framework.options.useWorker}`, 'info');
+                log(`配置调试: workerPath=${framework.options.workerPath}`, 'info');
+
+                await framework.initialize();
+                log('✅ 框架初始化成功', 'success');
+
+                // 检查ONNX Runtime是否可用（在框架初始化后）
+                if (window.ort) {
+                    log(`ONNX Runtime版本: ${window.ort.version || 'unknown'}`, 'info');
+                } else {
+                    log('⚠️ ONNX Runtime版本信息不可用', 'warning');
+                }
+
+                // 启用按钮
+                document.getElementById('loadBtn').disabled = false;
+
+                showStatus('✅ 初始化完成，请加载模型', 'success');
+
+            } catch (error) {
+                log(`❌ 初始化失败: ${error.message}`, 'error');
+                log('请检查:', 'warning');
+                log('1. 是否安装了 onnxruntime-web: pnpm install onnxruntime-web', 'info');
+                log('2. 浏览器控制台是否有其他错误信息', 'info');
+                log('3. 检查Vite开发服务器是否正常运行', 'info');
+                showStatus(`❌ 初始化失败: ${error.message}`, 'error');
+            }
+        }
+
+        // 加载模型
+        window.loadModel = async function() {
+            if (!framework) return;
+
+            const modelName = 'rmbg_quantized'; // 固定使用rmbg_quantized模型
+
+            try {
+                showStatus('正在加载模型...', 'loading');
+                log(`开始从 ModelScope 加载模型: ${modelName}`, 'info');
+                log(`模型地址: https://www.modelscope.cn/models/duchao/rmbg_quantized/resolve/master/rmbg_quantized.ort`, 'info');
+
+                const loadStart = performance.now();
+                // 从 ModelScope 加载 rmbg_quantized 模型
+                await framework.loadModel(modelName, 'https://www.modelscope.cn/models/duchao/rmbg_quantized/resolve/master/rmbg_quantized.ort', {
+                    preferOrtFormat: true
+                });
+                const loadTime = performance.now() - loadStart;
+
+                currentModel = modelName;
+
+                // 获取模型信息
+                const modelInfo = framework.getModelInfo(modelName);
+                const modelFormat = framework.getModelFormat(modelName);
+
+                log(`✅ 从 ModelScope 加载模型成功`, 'success');
+                log(`   加载时间: ${loadTime.toFixed(2)}ms`);
+                log(`   格式: ${modelFormat ? modelFormat.format : 'unknown'}`);
+                log(`   执行提供者: ${modelFormat ? modelFormat.providers.join(', ') : 'unknown'}`);
+
+                // 显示模型的输入输出信息
+                if (modelInfo) {
+                    log(`   输入名称: ${modelInfo.inputNames.join(', ')}`, 'info');
+                    log(`   输出名称: ${modelInfo.outputNames.join(', ')}`, 'info');
+                }
+
+                // 更新性能信息
+                document.getElementById('loadTime').textContent = `${loadTime.toFixed(2)}ms`;
+                document.getElementById('modelFormat').textContent = modelFormat ? modelFormat.format : 'unknown';
+                document.getElementById('executionProvider').textContent = modelFormat ? modelFormat.providers.join(', ') : 'unknown';
+                document.getElementById('performanceInfo').style.display = 'block';
+
+                // 启用处理按钮
+                document.getElementById('processBtn').disabled = false;
+
+                showStatus('✅ 模型加载成功，可以选择图片进行处理', 'success');
+
+            } catch (error) {
+                log(`❌ 模型加载失败: ${error.message}`, 'error');
+                showStatus(`❌ 模型加载失败: ${error.message}`, 'error');
+            }
+        };
+
+        // 处理文件选择
+        window.handleFileSelect = function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    displayImage(img);
+                    currentImageData = img;
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        };
+
+        // 使用示例图片
+        window.useExampleImage = function() {
+            const img = new Image();
+            img.onload = function() {
+                displayImage(img);
+                currentImageData = img;
+                log('✅ 加载示例图片: photo.jpg', 'success');
+            };
+            img.onerror = function() {
+                log('❌ 无法加载示例图片', 'error');
+            };
+            img.src = '../examples/photo.jpg';
+        };
+
+        // 显示图片
+        function displayImage(img) {
+            const canvas = document.getElementById('originalCanvas');
+            const ctx = canvas.getContext('2d');
+
+            // 调整canvas大小
+            const maxWidth = 300;
+            const scale = Math.min(maxWidth / img.width, maxWidth / img.height, 1);
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+
+            // 绘制图片
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        }
+
+        // 处理图片
+        window.processImage = async function() {
+            if (!framework || !currentModel || !currentImageData) return;
+
+            try {
+                showStatus('正在处理图片...', 'loading');
+                log('开始处理图片...', 'info');
+
+                const processStart = performance.now();
+
+                // 预处理图片
+                const processedInput = await preprocessImage(currentImageData);
+
+                // 运行推理
+                const result = await framework.run(currentModel, processedInput);
+
+                const processTime = performance.now() - processStart;
+
+                // 后处理结果
+                await postprocessResult(result, currentImageData);
+
+                // 更新性能信息
+                document.getElementById('processTime').textContent = `${processTime.toFixed(2)}ms`;
+
+                log(`✅ 图片处理完成，耗时: ${processTime.toFixed(2)}ms`, 'success');
+                showStatus('✅ 图片处理完成', 'success');
+
+            } catch (error) {
+                log(`❌ 图片处理失败: ${error.message}`, 'error');
+                showStatus(`❌ 图片处理失败: ${error.message}`, 'error');
+            }
+        };
+
+        // 预处理图片
+        async function preprocessImage(img) {
+            const modelName = 'rmbg_quantized'; // 固定使用rmbg_quantized模型
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            // 使用rmbg_quantized模型配置
+            const targetSize = 1024; // rmbg_quantized 使用 1024×1024
+            const modelConfig = {
+                do_normalize: true,
+                do_rescale: true,
+                rescale_factor: 0.00392156862745098,  // 1/255
+                image_mean: [0.5, 0.5, 0.5],
+                image_std: [1.0, 1.0, 1.0]
+            };
+            log(`rmbg_quantized模型配置: ${JSON.stringify(modelConfig)}`, 'info');
+
+            canvas.width = targetSize;
+            canvas.height = targetSize;
+
+            // 绘制并调整大小
+            ctx.drawImage(img, 0, 0, targetSize, targetSize);
+
+            // 获取图像数据
+            const imageData = ctx.getImageData(0, 0, targetSize, targetSize);
+            const data = imageData.data;
+
+            // 转换为NCHW格式 [1, 3, H, W]
+            const input = new Float32Array(3 * targetSize * targetSize);
+
+            for (let i = 0; i < data.length; i += 4) {
+                const pixelIndex = i / 4;
+
+                // 提取RGB值 (0-255)
+                let r = data[i];
+                let g = data[i + 1];
+                let b = data[i + 2];
+
+                // 步骤1: Rescale (如果需要)
+                if (modelConfig.do_rescale) {
+                    r = r * modelConfig.rescale_factor;
+                    g = g * modelConfig.rescale_factor;
+                    b = b * modelConfig.rescale_factor;
+                }
+
+                // 步骤2: Normalize (如果需要)
+                if (modelConfig.do_normalize) {
+                    r = (r - modelConfig.image_mean[0]) / modelConfig.image_std[0];
+                    g = (g - modelConfig.image_mean[1]) / modelConfig.image_std[1];
+                    b = (b - modelConfig.image_mean[2]) / modelConfig.image_std[2];
+                }
+
+                // 存储为NCHW格式
+                input[pixelIndex] = r;                              // R channel
+                input[pixelIndex + targetSize * targetSize] = g;   // G channel
+                input[pixelIndex + 2 * targetSize * targetSize] = b; // B channel
+            }
+
+            // 检查ONNX Runtime是否可用
+            if (!window.ort) {
+                throw new Error('ONNX Runtime未加载，请检查onnxruntime-web依赖');
+            }
+
+            // 调试：输出张量数据范围
+            let minVal = Infinity, maxVal = -Infinity;
+            for (let i = 0; i < Math.min(1000, input.length); i++) {
+                minVal = Math.min(minVal, input[i]);
+                maxVal = Math.max(maxVal, input[i]);
+            }
+            log(`${modelName} 输入张量数据范围: [${minVal.toFixed(6)}, ${maxVal.toFixed(6)}]`, 'info');
+
+            // 创建输入张量 (NCHW格式: [1, 3, H, W])
+            const tensor = new window.ort.Tensor('float32', input, [1, 3, targetSize, targetSize]);
+
+            // 获取模型的实际输入名称
+            const modelInfo = framework.getModelInfo(currentModel);
+            const inputNames = modelInfo ? modelInfo.inputNames : ['input'];
+
+            log(`使用输入名称: ${inputNames.join(', ')}`, 'info');
+
+            // 根据实际输入名称创建输入对象
+            const inputs = {};
+            inputNames.forEach(name => {
+                inputs[name] = tensor;
+            });
+
+            return inputs;
+        }
+
+        // 后处理结果
+        async function postprocessResult(result, originalImg) {
+            const modelName = 'rmbg_quantized'; // 固定使用rmbg_quantized模型
+            log(`推理结果: ${JSON.stringify(Object.keys(result))}`, 'info');
+
+            // 检查result是否包含实际的张量输出
+            let outputs = [];
+
+            // 如果result.output存在且是对象，可能包含所有输出
+            if (result.output && typeof result.output === 'object') {
+                // 尝试找到实际的张量
+                for (const [key, value] of Object.entries(result.output)) {
+                    log(`检查 result.output.${key}: 类型=${typeof value}, 有getData=${typeof value.getData === 'function'}`, 'info');
+                    if (typeof value === 'object' && value !== null && typeof value.getData === 'function') {
+                        outputs.push({ name: key, tensor: value });
+                    }
+                }
+            }
+
+            // 如果没找到，检查result本身是否包含多个输出
+            if (outputs.length === 0) {
+                for (const [key, value] of Object.entries(result)) {
+                    log(`检查 result.${key}: 类型=${typeof value}, 有getData=${typeof value.getData === 'function'}`, 'info');
+                    if (typeof value === 'object' && value !== null && typeof value.getData === 'function') {
+                        outputs.push({ name: key, tensor: value });
+                    }
+                }
+            }
+
+            // 如果还是没找到，可能需要直接访问session的输出
+            if (outputs.length === 0) {
+                log('尝试直接从session获取输出...', 'warning');
+                const session = framework.sessions.get(currentModel);
+                if (session && session.outputNames) {
+                    log(`Session输出名称: ${session.outputNames.join(', ')}`, 'info');
+                    // 这里需要重新运行推理来获取实际输出
+                    throw new Error('需要重新运行推理以获取实际张量输出');
+                }
+            }
+
+            if (outputs.length === 0) {
+                throw new Error('无法找到有效的输出张量');
+            }
+
+            // 对于抠图模型，我们通常需要第一个输出
+            const output = outputs[0].tensor;
+            log(`使用输出: "${outputs[0].name}" (共${outputs.length}个输出)`, 'success');
+
+            // 获取张量数据
+            const data = await output.getData();
+            log(`输出数据长度: ${data.length}`, 'info');
+            log(`输出维度: ${output.dims ? output.dims.join('x') : 'unknown'}`, 'info');
+
+            // 创建蒙版canvas
+            const maskCanvas = document.getElementById('maskCanvas');
+            const maskCtx = maskCanvas.getContext('2d');
+
+            // 确定输出维度
+            let targetSize;
+            if (output.dims && output.dims.length >= 2) {
+                targetSize = Math.max(output.dims[output.dims.length - 1], output.dims[output.dims.length - 2]);
+            } else {
+                targetSize = Math.sqrt(data.length);
+            }
+
+            maskCanvas.width = targetSize;
+            maskCanvas.height = targetSize;
+
+            log(`蒙版大小: ${targetSize}x${targetSize}`, 'info');
+
+            // 将结果转换为蒙版
+            const maskImageData = maskCtx.createImageData(targetSize, targetSize);
+
+            // 处理NCHW格式 [1, 1, 320, 320]
+            if (output.dims && output.dims.length === 4) {
+                const batchSize = output.dims[0];
+                const channels = output.dims[1];
+                const height = output.dims[2];
+                const width = output.dims[3];
+
+                log(`处理NCHW格式: ${batchSize}x${channels}x${height}x${width}`, 'info');
+
+                // 检查数据范围
+                let minVal = Infinity, maxVal = -Infinity;
+                for (let i = 0; i < Math.min(100, data.length); i++) {
+                    minVal = Math.min(minVal, data[i]);
+                    maxVal = Math.max(maxVal, data[i]);
+                }
+                log(`原始数据范围: [${minVal.toFixed(6)}, ${maxVal.toFixed(6)}]`, 'info');
+
+                // 根据模型和数据范围判断处理方式
+                let isProcessedData = maxVal <= 1.0 && minVal >= 0.0;
+                let needsAmplification = false;
+
+                // rmbg_quantized模型特殊处理
+                // rmbg输出通常是原始logits，需要sigmoid激活
+                log(`检测到rmbg_quantized模型，应用sigmoid激活函数`, 'info');
+                isProcessedData = false;  // 需要sigmoid处理
+                needsAmplification = false;
+
+                // 创建临时数组存储处理后的数据
+                const processedData = new Float32Array(height * width);
+                let valueStats = { min: Infinity, max: -Infinity, sum: 0, count: 0 };
+
+                log('开始高级数据处理...', 'info');
+
+                // 第一步：数据预处理和归一化
+                for (let h = 0; h < height; h++) {
+                    for (let w = 0; w < width; w++) {
+                        const dataIndex = h * width + w;  // 单通道
+                        const imageIndex = h * width + w;
+
+                        let value = data[dataIndex];
+
+                        // 数据范围处理
+                        if (!isProcessedData) {
+                            // 应用sigmoid激活（如果需要）
+                            if (value > 10 || value < -10) {
+                                value = 1 / (1 + Math.exp(-value));
+                            }
+                            value = Math.max(0, Math.min(1, value));
+                        } else if (needsAmplification) {
+                            // 归一化放大
+                            if (maxVal > 0) {
+                                value = value / maxVal;
+                            }
+                        }
+
+                        processedData[imageIndex] = value;
+                        valueStats.min = Math.min(valueStats.min, value);
+                        valueStats.max = Math.max(valueStats.max, value);
+                        valueStats.sum += value;
+                        valueStats.count++;
+                    }
+                }
+
+                log(`处理后数据范围: [${valueStats.min.toFixed(6)}, ${valueStats.max.toFixed(6)}]`, 'info');
+
+                // 第二步：应用Otsu自适应阈值
+                const otsuThreshold = calculateOtsuThreshold(processedData, width, height);
+                log(`Otsu自动阈值: ${otsuThreshold.toFixed(4)}`, 'success');
+
+                // 第三步：生成初始trimap（背景-前景-未知区域）
+                const trimap = new Uint8Array(width * height);
+                const unknownThreshold = 0.1;  // 未知区域的阈值范围
+
+                for (let i = 0; i < processedData.length; i++) {
+                    if (processedData[i] < otsuThreshold - unknownThreshold) {
+                        trimap[i] = 0;      // 背景
+                    } else if (processedData[i] > otsuThreshold + unknownThreshold) {
+                        trimap[i] = 255;    // 前景
+                    } else {
+                        trimap[i] = 128;    // 未知区域
+                    }
+                }
+
+                // 统计trimap分布
+                let bgCount = 0, fgCount = 0, unknownCount = 0;
+                for (let i = 0; i < trimap.length; i++) {
+                    if (trimap[i] === 0) bgCount++;
+                    else if (trimap[i] === 255) fgCount++;
+                    else unknownCount++;
+                }
+                log(`Trimap分布 - 背景:${bgCount}, 前景:${fgCount}, 未知:${unknownCount}`, 'info');
+
+                // 第四步：rmbg_quantized模型简单阈值处理
+                log('rmbg_quantized模型跳过复杂形态学处理，使用简单阈值处理', 'info');
+                const refinedAlpha = new Float32Array(processedData.length);
+                for (let i = 0; i < processedData.length; i++) {
+                    refinedAlpha[i] = processedData[i] > 0.5 ? 1.0 : processedData[i];
+                }
+
+                // 第五步：白边消除处理 - 基于code review的正确实现
+                log('使用正确的白边消除处理...', 'info');
+
+                // 步骤1: 真正的smoothstep（修复版）
+                const smoothstepAlpha = new Float32Array(refinedAlpha.length);
+                const edge0 = 0.25;
+                const edge1 = 0.75;
+
+                // 正确的smoothstep实现
+                for (let i = 0; i < refinedAlpha.length; i++) {
+                    const value = Math.max(0, Math.min(1, refinedAlpha[i]));
+                    smoothstepAlpha[i] = smoothstep01(value, edge0, edge1);
+                }
+
+                // 步骤2: 真正的1px erosion（min-filter版）
+                const erodedAlpha = alphaErode1px(smoothstepAlpha, width, height);
+
+                // 使用经过正确处理的alpha
+                const finalAlpha = erodedAlpha;
+
+                // 步骤3: 将最终结果转换为mask图像数据
+                for (let i = 0; i < erodedAlpha.length; i++) {
+                    // 将值限制在[0,1]范围内
+                    const clampedValue = Math.max(0, Math.min(1, erodedAlpha[i]));
+                    const alphaValue = Math.round(clampedValue * 255);
+                    maskImageData.data[i * 4] = alphaValue;     // R
+                    maskImageData.data[i * 4 + 1] = alphaValue; // G
+                    maskImageData.data[i * 4 + 2] = alphaValue; // B
+                    maskImageData.data[i * 4 + 3] = alphaValue; // A - 使用alphaValue作为透明度
+                }
+
+                log('✅ 正确的白边消除处理完成（基于code review修复）', 'success');
+
+                log('=== mask图像数据生成完成 ===');
+
+                // 调试：检查生成的mask数据
+                let maskStats = { min: 255, max: 0, sum: 0, alphaSum: 0 };
+                for (let i = 0; i < finalAlpha.length; i++) {
+                    const alpha = maskImageData.data[i * 4 + 3];
+                    maskStats.min = Math.min(maskStats.min, alpha);
+                    maskStats.max = Math.max(maskStats.max, alpha);
+                    maskStats.alphaSum += alpha;
+                    maskStats.sum += finalAlpha[i];
+                }
+                log(`Mask Alpha范围: ${maskStats.min}-${maskStats.max}, 平均Alpha: ${(maskStats.alphaSum/finalAlpha.length).toFixed(1)}`);
+                log(`FinalAlpha平均值: ${(maskStats.sum/finalAlpha.length).toFixed(6)}`);
+
+                log('高级mask处理完成', 'success');
+
+                
+                // 输出统计信息
+                const avgValue = valueStats.sum / valueStats.count;
+                log(`=== 处理后的数据统计 ===`);
+                log(`处理后的值范围: [${valueStats.min.toFixed(6)}, ${valueStats.max.toFixed(6)}]`);
+                log(`平均值: ${avgValue.toFixed(6)}`);
+                log(`是否需要放大: ${needsAmplification}`);
+
+                // 如果是单通道，复制到其他通道
+                if (channels === 1) {
+                    for (let i = 0; i < height * width; i++) {
+                        const value = maskImageData.data[i * 4];
+                        maskImageData.data[i * 4 + 1] = value;
+                        maskImageData.data[i * 4 + 2] = value;
+                    }
+                }
+
+            } else {
+                // 其他格式，假设是一维数据
+                for (let i = 0; i < Math.min(data.length, targetSize * targetSize); i++) {
+                    let value = data[i];
+
+                    // 应用sigmoid激活（如果需要）
+                    if (value > 10 || value < -10) {
+                        value = 1 / (1 + Math.exp(-value));
+                    }
+
+                    // 确保值在[0,1]范围内
+                    value = Math.max(0, Math.min(1, value));
+
+                    const pixelValue = Math.round(value * 255);
+                    maskImageData.data[i * 4] = pixelValue;     // R
+                    maskImageData.data[i * 4 + 1] = pixelValue; // G
+                    maskImageData.data[i * 4 + 2] = pixelValue; // B
+                    maskImageData.data[i * 4 + 3] = pixelValue; // A - 使用pixelValue作为透明度
+                }
+            }
+
+            maskCtx.putImageData(maskImageData, 0, 0);
+
+            // 创建抠图结果canvas
+            const resultCanvas = document.getElementById('resultCanvas');
+            const resultCtx = resultCanvas.getContext('2d');
+
+            // 创建高分辨率处理canvas（原始分辨率）
+            const fullResCanvas = document.createElement('canvas');
+            const fullResCtx = fullResCanvas.getContext('2d');
+            fullResCanvas.width = originalImg.width;
+            fullResCanvas.height = originalImg.height;
+
+            // 创建高分辨率蒙版canvas（原始分辨率）
+            const fullResMaskCanvas = document.createElement('canvas');
+            const fullResMaskCtx = fullResMaskCanvas.getContext('2d');
+            fullResMaskCanvas.width = originalImg.width;
+            fullResMaskCanvas.height = originalImg.height;
+
+            // 将低分辨率蒙版缩放到原始分辨率
+            fullResMaskCtx.drawImage(maskCanvas, 0, 0, maskCanvas.width, maskCanvas.height, 0, 0, originalImg.width, originalImg.height);
+
+            // 在高分辨率canvas上绘制原始图片
+            fullResCtx.drawImage(originalImg, 0, 0, originalImg.width, originalImg.height);
+
+            // 应用蒙版到高分辨率canvas
+            const maskData = fullResMaskCtx.getImageData(0, 0, originalImg.width, originalImg.height);
+            let nonZeroPixels = 0;
+            let totalPixels = 0;
+
+            for (let i = 0; i < maskData.data.length; i += 4) {
+                const alpha = maskData.data[i + 3];
+                if (alpha > 0) nonZeroPixels++;
+                totalPixels++;
+            }
+            log(`蒙版非透明像素: ${nonZeroPixels}/${totalPixels}`, 'info');
+
+            // 详细调试：检查mask像素值分布
+            let debugSamples = [];
+            let maxAlpha = 0;
+            let minAlpha = 255;
+            let alphaSum = 0;
+
+            for (let i = 0; i < Math.min(20, maskData.data.length / 4); i++) {
+                const r = maskData.data[i * 4];
+                const g = maskData.data[i * 4 + 1];
+                const b = maskData.data[i * 4 + 2];  // 修复 typo
+                const a = maskData.data[i * 4 + 3];  // 修复 typo
+                debugSamples.push(`RGBA(${r}, ${g}, ${b}, ${a})`);
+                maxAlpha = Math.max(maxAlpha, a);
+                minAlpha = Math.min(minAlpha, a);
+                alphaSum += a;
+            }
+
+            const avgAlpha = alphaSum / Math.min(20, maskData.data.length / 4);
+            log(`前20个像素值: [${debugSamples.slice(0, 10).join(', ')}]`, 'info');
+            log(`Mask Alpha范围: ${minAlpha}-${maxAlpha}, 平均: ${avgAlpha.toFixed(1)}`, 'info');
+
+            // 关键调试：mask是作为灰度图还是alpha蒙版使用？
+            log(`=== 蒙版应用分析 ===`, 'info');
+            log(`当前使用的方法: destination-in 合成操作`, 'info');
+            log(`这意味着mask的alpha通道将控制原图的透明度`, 'info');
+
+            // 检查mask是否适合作为alpha蒙版
+            let hasTransparency = false;
+            let hasHighContrast = false;
+
+            for (let i = 0; i < maskData.data.length; i += 4) {
+                const alpha = maskData.data[i + 3];
+                if (alpha < 255 && alpha > 0) hasTransparency = true;
+                if (alpha > 200) hasHighContrast = true;  // 检查是否有足够高的对比度
+            }
+
+            log(`Mask包含半透明像素: ${hasTransparency}`, 'info');
+            log(`Mask包含高对比度区域: ${hasHighContrast}`, 'info');
+
+            // 保存应用蒙版前的状态
+            const beforeData = fullResCtx.getImageData(0, 0, originalImg.width, originalImg.height);
+
+            // 应用蒙版到高分辨率canvas
+            log('应用蒙版到高分辨率canvas...', 'info');
+            fullResCtx.globalCompositeOperation = 'destination-in';
+            fullResCtx.drawImage(fullResMaskCanvas, 0, 0, originalImg.width, originalImg.height);
+            fullResCtx.globalCompositeOperation = 'source-over';
+
+            // ✅ 根据 rmbg 讨论文档：绝对不要对 rmbg 做任何 unpremultiply alpha 处理
+            // rmbg 输出的 RGB 是原始图像的 RGB（未 premultiply），所以不需要处理
+            log('✅ 跳过 Unpremultiply Alpha 处理（rmbg 模型不需要）', 'info');
+
+            // 调试：检查高分辨率最终结果
+            const fullResData = fullResCtx.getImageData(0, 0, originalImg.width, originalImg.height);
+            let resultNonZeroPixels = 0;
+            let resultMaxAlpha = 0;
+            let resultAlphaSum = 0;
+
+            for (let i = 0; i < fullResData.data.length; i += 4) {
+                const alpha = fullResData.data[i + 3];
+                if (alpha > 0) resultNonZeroPixels++;
+                resultMaxAlpha = Math.max(resultMaxAlpha, alpha);
+                resultAlphaSum += alpha;
+            }
+
+            const resultAvgAlpha = resultAlphaSum / (fullResData.data.length / 4);
+            log(`高分辨率结果非透明像素: ${resultNonZeroPixels}/${originalImg.width * originalImg.height}`, 'info');
+            log(`高分辨率结果Alpha范围: 0-${resultMaxAlpha}, 平均: ${resultAvgAlpha.toFixed(1)}`, 'info');
+
+            // 对比前后变化
+            let changedPixels = 0;
+            for (let i = 0; i < beforeData.data.length; i += 4) {
+                const beforeAlpha = beforeData.data[i + 3];
+                const afterAlpha = fullResData.data[i + 3];
+                if (Math.abs(beforeAlpha - afterAlpha) > 5) {  // 显著变化
+                    changedPixels++;
+                }
+            }
+            log(`发生显著变化的像素: ${changedPixels}/${originalImg.width * originalImg.height}`, 'info');
+
+            // 现在设置显示用的缩放canvas
+            const maxWidth = 300;
+            const scale = Math.min(maxWidth / originalImg.width, maxWidth / originalImg.height, 1);
+            resultCanvas.width = originalImg.width * scale;
+            resultCanvas.height = originalImg.height * scale;
+
+            // 将高分辨率结果缩放到显示canvas
+            resultCtx.drawImage(fullResCanvas, 0, 0, originalImg.width, originalImg.height, 0, 0, resultCanvas.width, resultCanvas.height);
+
+            // 存储高分辨率canvas供下载使用
+            window.highResResultCanvas = fullResCanvas;
+
+            // 启用下载按钮
+            document.getElementById('downloadBtn').disabled = false;
+
+            log(`✅ 创建了 ${originalImg.width}×${originalImg.height} 高分辨率结果用于下载`, 'success');
+
+            // 如果变化很小，尝试替代方法
+            if (changedPixels < (originalImg.width * originalImg.height * 0.1)) {
+                log(`⚠️ 检测到蒙版效果不明显，尝试替代方法...`, 'warning');
+
+                // 在高分辨率canvas上重试
+                fullResCtx.clearRect(0, 0, originalImg.width, originalImg.height);
+                fullResCtx.drawImage(originalImg, 0, 0, originalImg.width, originalImg.height);
+
+                // 方法2：使用mask的亮度作为alpha（高分辨率版本）
+                fullResCtx.globalCompositeOperation = 'destination-in';
+
+                // 创建一个高分辨率临时canvas来转换灰度值为alpha
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = originalImg.width;
+                tempCanvas.height = originalImg.height;
+                const tempCtx = tempCanvas.getContext('2d');
+
+                // 将高分辨率mask绘制到临时canvas
+                tempCtx.drawImage(fullResMaskCanvas, 0, 0);
+                const tempData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+
+                // 使用灰度值作为alpha
+                for (let i = 0; i < tempData.data.length; i += 4) {
+                    const gray = tempData.data[i];  // 使用红色通道作为灰度值
+                    tempData.data[i] = 255;        // R
+                    tempData.data[i + 1] = 255;    // G
+                    tempData.data[i + 2] = 255;    // B
+                    tempData.data[i + 3] = gray;   // A - 使用灰度值作为透明度
+                }
+
+                tempCtx.putImageData(tempData, 0, 0);
+                fullResCtx.drawImage(tempCanvas, 0, 0, originalImg.width, originalImg.height);
+                fullResCtx.globalCompositeOperation = 'source-over';
+
+                // 更新显示canvas
+                resultCtx.clearRect(0, 0, resultCanvas.width, resultCanvas.height);
+                resultCtx.drawImage(fullResCanvas, 0, 0, originalImg.width, originalImg.height, 0, 0, resultCanvas.width, resultCanvas.height);
+
+                log(`✅ 尝试使用灰度值作为Alpha蒙版（高分辨率）`, 'success');
+            }
+        }
+
+        // 下载高分辨率结果
+        window.downloadHighResResult = function() {
+            if (!window.highResResultCanvas) {
+                log('❌ 没有可下载的高分辨率结果', 'error');
+                return;
+            }
+
+            try {
+                // 将canvas转换为blob
+                window.highResResultCanvas.toBlob(function(blob) {
+                    // 创建下载链接
+                    const url = URL.createObjectURL(blob);
+                    const link = document.createElement('a');
+                    link.href = url;
+                    link.download = `segmentation_result_${Date.now()}.png`;
+
+                    // 触发下载
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+
+                    // 清理URL对象
+                    URL.revokeObjectURL(url);
+
+                    log(`✅ 下载了高分辨率结果: ${window.highResResultCanvas.width}×${window.highResResultCanvas.height}`, 'success');
+                }, 'image/png');
+            } catch (error) {
+                log(`❌ 下载失败: ${error.message}`, 'error');
+            }
+        };
+
+        // 清除结果
+        window.clearResults = function() {
+            const canvases = ['originalCanvas', 'resultCanvas', 'maskCanvas'];
+            canvases.forEach(id => {
+                const canvas = document.getElementById(id);
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            });
+
+            currentImageData = null;
+            window.highResResultCanvas = null;
+            document.getElementById('performanceInfo').style.display = 'none';
+            document.getElementById('downloadBtn').disabled = true;
+            log('结果已清除', 'info');
+        };
+
+        // Otsu阈值计算算法
+        function calculateOtsuThreshold(data, width, height) {
+            // 计算直方图
+            const histogram = new Array(256).fill(0);
+            for (let i = 0; i < data.length; i++) {
+                const bin = Math.min(255, Math.floor(data[i] * 255));
+                histogram[bin]++;
+            }
+
+            const total = width * height;
+            let sum = 0;
+            for (let i = 0; i < 256; i++) {
+                sum += i * histogram[i];
+            }
+
+            let sumB = 0;
+            let wB = 0;
+            let wF = 0;
+            let varMax = 0;
+            let threshold = 0;
+
+            for (let t = 0; t < 256; t++) {
+                wB += histogram[t];
+                if (wB === 0) continue;
+
+                wF = total - wB;
+                if (wF === 0) break;
+
+                sumB += t * histogram[t];
+                const mB = sumB / wB;
+                const mF = (sum - sumB) / wF;
+
+                const varBetween = wB * wF * (mB - mF) * (mB - mF);
+
+                if (varBetween > varMax) {
+                    varMax = varBetween;
+                    threshold = t;
+                }
+            }
+
+            return threshold / 255.0;  // 转换回[0,1]范围
+        }
+
+        // 形态学细化和边缘处理
+        function morphologyRefinement(processedData, trimap, width, height) {
+            const refinedAlpha = new Float32Array(width * height);
+
+            log('开始形态学细化处理...', 'info');
+
+            // 第一阶段：对未知区域进行高斯模糊处理
+            const smoothedData = gaussianBlur(processedData, width, height, 1.0);
+
+            // 第二阶段：引导滤波简化版本
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = y * width + x;
+
+                    if (trimap[idx] === 0) {
+                        // 背景区域
+                        refinedAlpha[idx] = 0;
+                    } else if (trimap[idx] === 255) {
+                        // 前景区域
+                        refinedAlpha[idx] = 1;
+                    } else {
+                        // 未知区域 - 使用局部平均
+                        let localSum = 0;
+                        let localCount = 0;
+                        const radius = 3;
+
+                        for (let dy = -radius; dy <= radius; dy++) {
+                            for (let dx = -radius; dx <= radius; dx++) {
+                                const ny = y + dy;
+                                const nx = x + dx;
+
+                                if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                                    const nIdx = ny * width + nx;
+                                    if (trimap[nIdx] !== 0) {  // 不包含背景像素
+                                        localSum += smoothedData[nIdx];
+                                        localCount++;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (localCount > 0) {
+                            refinedAlpha[idx] = localSum / localCount;
+                        } else {
+                            refinedAlpha[idx] = smoothedData[idx];
+                        }
+                    }
+                }
+            }
+
+            // 第三阶段：边缘细化 - 对非rmbg模型使用形态学操作
+            let edgeRefined = refinedAlpha;
+
+            // 根据code review: rmbg_quantized模型跳过形态学边缘细化，因为它会扩散halo
+            log('跳过形态学边缘细化（rmbg_quantized模型不需要）', 'info');
+
+            log('形态学细化处理完成', 'success');
+            return edgeRefined;
+        }
+
+        // 高斯模糊
+        function gaussianBlur(data, width, height, sigma) {
+            const kernelSize = Math.ceil(3 * sigma);
+            const kernel = [];
+            const twoSigmaSquare = 2 * sigma * sigma;
+            let kernelSum = 0;
+
+            // 生成高斯核
+            for (let y = -kernelSize; y <= kernelSize; y++) {
+                for (let x = -kernelSize; x <= kernelSize; x++) {
+                    const weight = Math.exp(-(x * x + y * y) / twoSigmaSquare) / (Math.PI * twoSigmaSquare);
+                    kernel.push(weight);
+                    kernelSum += weight;
+                }
+            }
+
+            // 归一化核
+            for (let i = 0; i < kernel.length; i++) {
+                kernel[i] /= kernelSum;
+            }
+
+            const blurred = new Float32Array(width * height);
+
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    let sum = 0;
+                    let kernelIdx = 0;
+
+                    for (let ky = -kernelSize; ky <= kernelSize; ky++) {
+                        for (let kx = -kernelSize; kx <= kernelSize; kx++) {
+                            const ny = y + ky;
+                            const nx = x + kx;
+
+                            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                                sum += data[ny * width + nx] * kernel[kernelIdx];
+                            }
+                            kernelIdx++;
+                        }
+                    }
+
+                    blurred[y * width + x] = sum;
+                }
+            }
+
+            return blurred;
+        }
+
+        // Alpha边缘清理 - 温和的白边处理
+        function alphaErosion(alpha, width, height, radius) {
+            const eroded = new Float32Array(alpha.length);
+            log(`开始${radius}px alpha边缘清理处理...`, 'info');
+
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    const idx = y * width + x;
+
+                    // 只有在高alpha区域才应用腐蚀，避免过度处理
+                    if (alpha[idx] > 0.8) {
+                        let hasLowNeighbor = false;
+
+                        // 检查周围是否有低alpha像素（可能的白边）
+                        for (let dy = -radius; dy <= radius; dy++) {
+                            for (let dx = -radius; dx <= radius; dx++) {
+                                if (dy === 0 && dx === 0) continue; // 跳过自己
+
+                                const ny = y + dy;
+                                const nx = x + dx;
+
+                                if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                                    const nIdx = ny * width + nx;
+                                    if (alpha[nIdx] < 0.3) {
+                                        hasLowNeighbor = true;
+                                        break;
+                                    }
+                                }
+                            }
+                            if (hasLowNeighbor) break;
+                        }
+
+                        // 如果周围有低alpha像素，降低当前像素的alpha值
+                        eroded[idx] = hasLowNeighbor ? alpha[idx] * 0.7 : alpha[idx];
+                    } else {
+                        // 低alpha区域保持不变
+                        eroded[idx] = alpha[idx];
+                    }
+                }
+            }
+
+            log('✅ Alpha边缘清理处理完成', 'success');
+            return eroded;
+        }
+
+        // 正确的smoothstep函数（基于code review修复版）
+        function smoothstep01(x, edge0, edge1) {
+            // 标准smoothstep: edge0以下为0，edge1以上为1，中间平滑过渡
+            const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+            return t * t * (3 - 2 * t);
+        }
+
+        // 真正的1px erosion（min-filter版）
+        function alphaErode1px(alpha, width, height) {
+            const out = new Float32Array(alpha.length);
+
+            for (let y = 0; y < height; y++) {
+                for (let x = 0; x < width; x++) {
+                    let minVal = 1.0;
+                    for (let dy = -1; dy <= 1; dy++) {
+                        for (let dx = -1; dx <= 1; dx++) {
+                            const ny = y + dy, nx = x + dx;
+                            if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                                minVal = Math.min(minVal, alpha[ny * width + nx]);
+                            }
+                        }
+                    }
+                    out[y * width + x] = minVal;
+                }
+            }
+            return out;
+        }
+
+        
+        // 页面加载完成后初始化
+        window.addEventListener('load', function() {
+            initializeFramework();
+        });
+    </script>
+</body>
+</html>

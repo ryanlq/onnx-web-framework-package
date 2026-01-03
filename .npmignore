@@ -1,0 +1,13 @@
+# Dependencies
+node_modules/
+
+# Development files
+tests/
+examples/
+tools/
+test-locally.js
+test-package.html
+verify-build.cjs
+vite.config.js
+VITE_USAGE.md
+CLAUDE.md

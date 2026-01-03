@@ -1,0 +1,17 @@
+{
+  "name": "onnx-web-framework-basic-example",
+  "version": "1.0.0",
+  "description": "Basic usage example for ONNX Web Framework",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "onnx-web-framework": "file:../../"
+  },
+  "devDependencies": {
+    "vite": "^5.2.0"
+  }
+}

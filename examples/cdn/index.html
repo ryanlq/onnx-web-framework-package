@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ONNX Web Framework - CDN Usage</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .code-block {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 15px 0;
+            overflow-x: auto;
+        }
+        pre {
+            margin: 0;
+            white-space: pre-wrap;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 14px;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .demo-section {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 20px;
+            background-color: #f8f9fa;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 15px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: white;
+            display: none;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        .warning {
+            background-color: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 12px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>ONNX Web Framework - CDN Usage Example</h1>
+
+    <div class="warning">
+        <strong>Note:</strong> This example demonstrates how to use ONNX Web Framework directly from CDN without any build tools.
+    </div>
+
+    <div class="container">
+        <div class="demo-section">
+            <h2>Installation via CDN</h2>
+            <p>Add the following script to your HTML file:</p>
+
+            <div class="code-block">
+                <pre>&lt;!-- Load ONNX Runtime Web --&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"&gt;&lt;/script&gt;
+
+&lt;!-- Load ONNX Web Framework --&gt;
+&lt;script type="module"&gt;
+  import ONNXWebFramework from 'https://cdn.jsdelivr.net/npm/onnx-web-framework@latest/dist/index.js';
+&lt;/script&gt;</pre>
+            </div>
+        </div>
+
+        <div class="demo-section">
+            <h2>Basic Usage</h2>
+
+            <div class="code-block">
+                <pre>// Initialize framework
+const framework = new ONNXWebFramework({
+    executionProviders: ['wasm'],
+    enableProfiling: true
+});
+
+await framework.initialize();
+
+// Load model
+await framework.loadModel('my-model', 'path/to/model.onnx');
+
+// Run inference
+const result = await framework.predict('my-model', inputData);
+
+console.log('Inference result:', result.output);
+console.log('Inference time:', result.inferenceTime);</pre>
+            </div>
+        </div>
+
+        <div class="demo-section">
+            <h2>Live Demo</h2>
+
+            <div id="status" class="status">Click "Initialize Framework" to start</div>
+
+            <button id="initFramework">Initialize Framework</button>
+            <button id="loadModel" disabled>Load Model</button>
+            <button id="runInference" disabled>Run Inference</button>
+
+            <div id="results" class="results">
+                <h3>Demo Results</h3>
+                <div id="output"></div>
+            </div>
+        </div>
+
+        <div class="demo-section">
+            <h2>CDN URLs</h2>
+
+            <div class="code-block">
+                <pre>Latest version:
+https://cdn.jsdelivr.net/npm/onnx-web-framework@latest/dist/index.js
+
+Specific version:
+https://cdn.jsdelivr.net/npm/onnx-web-framework@1.0.0/dist/index.js
+
+Worker file:
+https://cdn.jsdelivr.net/npm/onnx-web-framework@latest/dist/onnx-worker.js
+
+TypeScript definitions:
+https://cdn.jsdelivr.net/npm/onnx-web-framework@latest/dist/index.d.ts</pre>
+            </div>
+        </div>
+
+        <div class="demo-section">
+            <h2>Configuration Options</h2>
+
+            <div class="code-block">
+                <pre>const framework = new ONNXWebFramework({
+    // Execution providers (in priority order)
+    executionProviders: ['webgpu', 'webgl', 'wasm'],
+
+    // WebNN device type (cpu/gpu/npu)
+    deviceType: 'gpu',
+
+    // Enable performance profiling
+    enableProfiling: true,
+
+    // Worker configuration
+    useWorker: true,
+
+    // Caching options
+    enableCache: true,
+    cacheMaxAge: 24 * 60 * 60 * 1000, // 24 hours
+
+    // WASM options
+    numThreads: 4,
+
+    // Debug mode
+    debug: false,
+    logLevel: 'warning'
+});</pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Load dependencies from CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>
+
+    <script type="module">
+        // Import ONNX Web Framework from CDN
+        import ONNXWebFramework from 'https://cdn.jsdelivr.net/npm/onnx-web-framework@latest/dist/index.js';
+
+        // Make it available globally for the demo
+        window.ONNXWebFramework = ONNXWebFramework;
+
+        let framework = null;
+        const statusEl = document.getElementById('status');
+        const initBtn = document.getElementById('initFramework');
+        const loadModelBtn = document.getElementById('loadModel');
+        const runInferenceBtn = document.getElementById('runInference');
+        const resultsEl = document.getElementById('results');
+        const outputEl = document.getElementById('output');
+
+        function updateStatus(message, type = 'info') {
+            statusEl.textContent = message;
+            statusEl.className = `status ${type}`;
+        }
+
+        function showResults(content) {
+            outputEl.innerHTML = content;
+            resultsEl.style.display = 'block';
+        }
+
+        async function initializeFramework() {
+            try {
+                updateStatus('Initializing framework...', 'info');
+                initBtn.disabled = true;
+
+                framework = new ONNXWebFramework({
+                    executionProviders: ['wasm'],
+                    enableProfiling: true,
+                    debug: true,
+                    useWorker: true,
+                    enableCache: true
+                });
+
+                await framework.initialize();
+
+                updateStatus('Framework initialized successfully!', 'success');
+                loadModelBtn.disabled = false;
+
+            } catch (error) {
+                updateStatus(`Initialization failed: ${error.message}`, 'error');
+                console.error('Framework initialization error:', error);
+                initBtn.disabled = false;
+            }
+        }
+
+        async function loadModel() {
+            try {
+                updateStatus('Loading model...', 'info');
+                loadModelBtn.disabled = true;
+
+                // For demo purposes, we'll use a mock model URL
+                // In real usage, replace with your actual model URL
+                const modelUrl = 'https://huggingface.co/onnx/models/resolve/main/mobilenetv2-7.onnx';
+
+                await framework.loadModel('demo-model', modelUrl);
+
+                updateStatus('Model loaded successfully!', 'success');
+                runInferenceBtn.disabled = false;
+
+            } catch (error) {
+                updateStatus(`Model loading failed: ${error.message}`, 'error');
+                console.error('Model loading error:', error);
+                loadModelBtn.disabled = false;
+            }
+        }
+
+        async function runInference() {
+            try {
+                updateStatus('Running inference...', 'info');
+                runInferenceBtn.disabled = true;
+
+                // Create mock input data
+                const inputData = new Float32Array(224 * 224 * 3).fill(Math.random());
+
+                const result = await framework.predict('demo-model', inputData, {
+                    preprocess: {
+                        normalization: 'zeroToOne'
+                    }
+                });
+
+                // Display results
+                const resultsHtml = `
+                    <p><strong>Inference completed successfully!</strong></p>
+                    <div class="code-block">
+                        <pre>Inference Time: ${result.inferenceTime.toFixed(2)}ms
+Preprocessing Time: ${result.preprocessTime.toFixed(2)}ms
+Total Time: ${result.totalTime.toFixed(2)}ms
+
+Output Sample: ${result.output ?
+    result.output.slice(0, 5).map(v => v.toFixed(4)).join(', ') :
+    'No output data available'}</pre>
+                    </div>
+                    <p><em>Note: This demo uses mock data. Replace the model URL with your actual ONNX model for real inference.</em></p>
+                `;
+
+                showResults(resultsHtml);
+                updateStatus('Inference completed!', 'success');
+                runInferenceBtn.disabled = false;
+
+            } catch (error) {
+                updateStatus(`Inference failed: ${error.message}`, 'error');
+                console.error('Inference error:', error);
+                runInferenceBtn.disabled = false;
+            }
+        }
+
+        // Event listeners
+        initBtn.addEventListener('click', initializeFramework);
+        loadModelBtn.addEventListener('click', loadModel);
+        runInferenceBtn.addEventListener('click', runInference);
+
+        // Initial status
+        updateStatus('Click "Initialize Framework" to start the demo', 'info');
+    </script>
+</body>
+</html>

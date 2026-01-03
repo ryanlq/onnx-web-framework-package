@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ONNX Web Framework - Basic Example</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+        }
+        .status {
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #f0f0f0;
+            min-width: 300px;
+            text-align: center;
+        }
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .results {
+            margin-top: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            min-width: 300px;
+        }
+        .performance {
+            font-family: monospace;
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ONNX Web Framework - Basic Example</h1>
+        <p>This example demonstrates basic usage of the ONNX Web Framework with a simple inference pipeline.</p>
+
+        <div id="status" class="status">Initializing...</div>
+
+        <button id="loadModel" disabled>Load Model</button>
+        <button id="runInference" disabled>Run Inference</button>
+        <button id="runMultiple" disabled>Run Multiple (10x)</button>
+
+        <div id="results" class="results" style="display: none;">
+            <h3>Inference Results</h3>
+            <div id="output"></div>
+            <div id="performance" class="performance"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import ONNXWebFramework from '../../src/index.js';
+
+        let framework = null;
+        const statusEl = document.getElementById('status');
+        const loadModelBtn = document.getElementById('loadModel');
+        const runInferenceBtn = document.getElementById('runInference');
+        const runMultipleBtn = document.getElementById('runMultiple');
+        const resultsEl = document.getElementById('results');
+        const outputEl = document.getElementById('output');
+        const performanceEl = document.getElementById('performance');
+
+        function updateStatus(message, isError = false) {
+            statusEl.textContent = message;
+            statusEl.className = isError ? 'status error' : 'status success';
+        }
+
+        function showResults() {
+            resultsEl.style.display = 'block';
+        }
+
+        async function initializeFramework() {
+            try {
+                updateStatus('Initializing ONNX Web Framework...');
+
+                framework = new ONNXWebFramework({
+                    executionProviders: ['wasm'],
+                    enableProfiling: true,
+                    debug: true
+                });
+
+                await framework.initialize();
+
+                updateStatus('Framework initialized successfully!');
+                loadModelBtn.disabled = false;
+
+            } catch (error) {
+                updateStatus(`Initialization failed: ${error.message}`, true);
+                console.error('Framework initialization error:', error);
+            }
+        }
+
+        async function loadModel() {
+            try {
+                updateStatus('Loading model...');
+                loadModelBtn.disabled = true;
+
+                // Note: Replace this URL with your actual model URL
+                const modelUrl = 'https://huggingface.co/onnx/models/resolve/main/mobilenetv2-7.onnx';
+
+                // Create a mock tensor for demonstration
+                const mockModelData = new Float32Array(224 * 224 * 3).fill(Math.random());
+
+                // For this demo, we'll create a mock model session
+                // In real usage, you would load an actual ONNX model
+                await framework.loadModel('demo-model', modelUrl);
+
+                updateStatus('Model loaded successfully!');
+                runInferenceBtn.disabled = false;
+                runMultipleBtn.disabled = false;
+
+            } catch (error) {
+                updateStatus(`Model loading failed: ${error.message}`, true);
+                console.error('Model loading error:', error);
+                loadModelBtn.disabled = false;
+            }
+        }
+
+        async function runInference() {
+            try {
+                updateStatus('Running inference...');
+                runInferenceBtn.disabled = true;
+
+                // Create mock input data
+                const inputData = new Float32Array(224 * 224 * 3).fill(Math.random());
+
+                const result = await framework.predict('demo-model', inputData, {
+                    preprocess: {
+                        normalization: 'zeroToOne'
+                    }
+                });
+
+                // Display results
+                showResults();
+                outputEl.innerHTML = `
+                    <strong>Inference completed!</strong><br>
+                    Output shape: [${result.output ? result.output.length || 'N/A' : 'N/A'}]<br>
+                    Sample output: ${result.output ? result.output.slice(0, 5).map(v => v.toFixed(4)).join(', ') : 'N/A'}
+                `;
+
+                performanceEl.innerHTML = `
+                    <strong>Performance Metrics:</strong><br>
+                    Preprocessing: ${result.preprocessTime.toFixed(2)}ms<br>
+                    Inference: ${result.inferenceTime.toFixed(2)}ms<br>
+                    Total: ${result.totalTime.toFixed(2)}ms
+                `;
+
+                updateStatus('Inference completed successfully!');
+                runInferenceBtn.disabled = false;
+
+            } catch (error) {
+                updateStatus(`Inference failed: ${error.message}`, true);
+                console.error('Inference error:', error);
+                runInferenceBtn.disabled = false;
+            }
+        }
+
+        async function runMultipleInferences() {
+            try {
+                updateStatus('Running multiple inferences...');
+                runMultipleBtn.disabled = true;
+
+                const numRuns = 10;
+                const times = [];
+
+                for (let i = 0; i < numRuns; i++) {
+                    const inputData = new Float32Array(224 * 224 * 3).fill(Math.random());
+
+                    const startTime = performance.now();
+                    await framework.predict('demo-model', inputData);
+                    const endTime = performance.now();
+
+                    times.push(endTime - startTime);
+                    updateStatus(`Running inference ${i + 1}/${numRuns}...`);
+                }
+
+                const avgTime = times.reduce((a, b) => a + b, 0) / times.length;
+                const minTime = Math.min(...times);
+                const maxTime = Math.max(...times);
+
+                showResults();
+                performanceEl.innerHTML = `
+                    <strong>Multiple Inference Results (${numRuns} runs):</strong><br>
+                    Average: ${avgTime.toFixed(2)}ms<br>
+                    Min: ${minTime.toFixed(2)}ms<br>
+                    Max: ${maxTime.toFixed(2)}ms<br>
+                    Throughput: ${(1000 / avgTime).toFixed(2)} inferences/second
+                `;
+
+                updateStatus(`Completed ${numRuns} inferences!`);
+                runMultipleBtn.disabled = false;
+
+            } catch (error) {
+                updateStatus(`Multiple inferences failed: ${error.message}`, true);
+                console.error('Multiple inference error:', error);
+                runMultipleBtn.disabled = false;
+            }
+        }
+
+        // Event listeners
+        loadModelBtn.addEventListener('click', loadModel);
+        runInferenceBtn.addEventListener('click', runInference);
+        runMultipleBtn.addEventListener('click', runMultipleInferences);
+
+        // Initialize on page load
+        initializeFramework();
+    </script>
+</body>
+</html>

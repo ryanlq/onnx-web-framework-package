@@ -1,0 +1,77 @@
+{
+  "name": "onnx-web-framework",
+  "version": "2.0.0",
+  "description": "A lightweight browser-based ONNX inference framework with Web Worker and caching support",
+  "type": "module",
+  "main": "dist/index.cjs",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs",
+      "types": "./dist/index.d.ts"
+    },
+    "./worker": {
+      "import": "./dist/worker.js",
+      "types": "./dist/worker.d.ts"
+    }
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "rollup -c",
+    "build:watch": "rollup -c -w",
+    "dev": "vite serve examples",
+    "test": "vitest",
+    "type-check": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run test",
+    "preview": "vite preview",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+  },
+  "peerDependencies": {
+    "onnxruntime-web": "^1.18.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^26.0.0",
+    "@rollup/plugin-node-resolve": "^15.2.0",
+    "@rollup/plugin-terser": "^0.4.4",
+    "rimraf": "^5.0.5",
+    "rollup": "^4.13.0",
+    "rollup-plugin-typescript2": "^0.36.0",
+    "typescript": "^5.4.0",
+    "vite": "^5.2.0",
+    "vitest": "^1.4.0"
+  },
+  "keywords": [
+    "onnx",
+    "machine-learning",
+    "web",
+    "browser",
+    "inference",
+    "ai",
+    "neural-network",
+    "tensorflow",
+    "pytorch",
+    "web-worker",
+    "non-blocking"
+  ],
+  "author": "ONNX Web Framework Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/onnx-web-framework.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/onnx-web-framework/issues"
+  },
+  "homepage": "https://github.com/your-username/onnx-web-framework#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
