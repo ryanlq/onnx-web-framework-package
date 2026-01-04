@@ -30,6 +30,12 @@ class InitializeConfig {
     this.wasmPaths = options.wasmPaths || null;
 
     /**
+     * 是否使用 IndexedDB 缓存的 WASM 文件
+     * @type {boolean}
+     */
+    this.useIndexedDBWasm = options.useIndexedDBWasm || false;
+
+    /**
      * 线程数量（0 = 使用默认值）
      * @type {number}
      */
@@ -244,8 +250,12 @@ class ONNXWorkerRuntime {
   async initialize(config) {
     console.log('[ONNX Worker] 初始化...', config);
 
-    // 设置 WASM 路径
-    if (config.wasmPaths) {
+    // 如果启用了 IndexedDB WASM 缓存
+    if (config.useIndexedDBWasm) {
+      await this._setupIndexedDBWasmLoader();
+      console.log('[ONNX Worker] 使用 IndexedDB WASM 加载器');
+    } else if (config.wasmPaths) {
+      // 设置 WASM 路径
       if (typeof config.wasmPaths === 'string') {
         ort.env.wasm.wasmPaths = config.wasmPaths;
       } else {
@@ -368,6 +378,51 @@ class ONNXWorkerRuntime {
       console.error(`[ONNX Worker] ❌ 推理失败:`, error);
       throw error;
     }
+  }
+
+  /**
+   * 设置 IndexedDB WASM 加载器
+   * @private
+   */
+  async _setupIndexedDBWasmLoader() {
+    const WASM_CACHE_DB = 'onnx-wasm-cache';
+    const WASM_CACHE_STORE = 'wasm-files';
+    const WASM_CACHE_VERSION = 1;
+
+    // 打开 IndexedDB
+    const db = await new Promise((resolve, reject) => {
+      const request = indexedDB.open(WASM_CACHE_DB, WASM_CACHE_VERSION);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+
+    // 读取 WASM 文件
+    const wasmFiles = await new Promise((resolve, reject) => {
+      const transaction = db.transaction([WASM_CACHE_STORE], 'readonly');
+      const store = transaction.objectStore(WASM_CACHE_STORE);
+      const request = store.getAll();
+
+      request.onsuccess = () => resolve(request.result || []);
+      request.onerror = () => reject(request.error);
+    });
+
+    console.log('[ONNX Worker] 从 IndexedDB 加载 WASM 文件:', wasmFiles.map(f => f.name));
+
+    // 创建 Blob URL 映射
+    const wasmPaths = {};
+    for (const entry of wasmFiles) {
+      const blob = new Blob([entry.data], { type: 'application/wasm' });
+      const url = URL.createObjectURL(blob);
+
+      // 提取文件名（不带路径）
+      const filename = entry.name;
+
+      wasmPaths[filename] = url;
+      console.log(`[ONNX Worker] ✅ 创建 Blob URL: ${filename} -> ${url}`);
+    }
+
+    // 设置 WASM 路径为 Blob URLs
+    ort.env.wasm.wasmPaths = wasmPaths;
   }
 
   /**

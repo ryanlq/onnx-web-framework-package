@@ -605,6 +605,12 @@ class InitializeConfig {
     this.wasmPaths = options.wasmPaths || null;
 
     /**
+     * 是否使用 IndexedDB 缓存的 WASM 文件
+     * @type {boolean}
+     */
+    this.useIndexedDBWasm = options.useIndexedDBWasm || false;
+
+    /**
      * 线程数量（0 = 使用默认值）
      * @type {number}
      */
