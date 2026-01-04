@@ -406,6 +406,11 @@ class ONNXWorkerRuntime {
       request.onerror = () => reject(request.error);
     });
 
+    if (wasmFiles.length === 0) {
+      console.warn('[ONNX Worker] ⚠️  IndexedDB 中没有 WASM 缓存，将使用默认加载方式');
+      return;
+    }
+
     console.log('[ONNX Worker] 从 IndexedDB 加载 WASM 文件:', wasmFiles.map(f => f.name));
 
     // 创建 Blob URL 映射
@@ -414,15 +419,17 @@ class ONNXWorkerRuntime {
       const blob = new Blob([entry.data], { type: 'application/wasm' });
       const url = URL.createObjectURL(blob);
 
-      // 提取文件名（不带路径）
+      // 使用完整文件名作为 key
       const filename = entry.name;
-
       wasmPaths[filename] = url;
-      console.log(`[ONNX Worker] ✅ 创建 Blob URL: ${filename} -> ${url}`);
+
+      console.log(`[ONNX Worker] ✅ 创建 Blob URL: ${filename} (${(entry.data.byteLength / 1024 / 1024).toFixed(2)} MB)`);
     }
 
     // 设置 WASM 路径为 Blob URLs
     ort.env.wasm.wasmPaths = wasmPaths;
+
+    console.log('[ONNX Worker] ✅ IndexedDB WASM 加载器配置完成');
   }
 
   /**
