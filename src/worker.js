@@ -9,7 +9,7 @@
  * 3. 调用 initialize(), loadModel(), run() 等方法
  */
 
-import * as ort from 'onnxruntime-web';
+import * as ort from "onnxruntime-web";
 import {
   WorkerMessageType,
   InitializeConfig,
@@ -17,8 +17,8 @@ import {
   RunInferenceRequest,
   WorkerResponse,
   ModelInfo,
-  TensorData
-} from './worker-types.js';
+  TensorData,
+} from "./worker-types.js";
 
 /**
  * ONNX Worker 运行时
@@ -53,16 +53,16 @@ class ONNXWorkerRuntime {
    * @returns {Promise<{success: boolean}>}
    */
   async initialize(config) {
-    console.log('[ONNX Worker] 初始化...', config);
+    console.log("[ONNX Worker] 初始化...", config);
 
     // 设置 WASM 路径
     if (config.wasmPaths) {
-      if (typeof config.wasmPaths === 'string') {
+      if (typeof config.wasmPaths === "string") {
         ort.env.wasm.wasmPaths = config.wasmPaths;
       } else {
         ort.env.wasm.wasmPaths = config.wasmPaths;
       }
-      console.log('[ONNX Worker] WASM 路径已设置:', config.wasmPaths);
+      console.log("[ONNX Worker] WASM 路径已设置:", config.wasmPaths);
     }
 
     // 设置线程数
@@ -74,7 +74,7 @@ class ONNXWorkerRuntime {
     this.config = config;
     this.isInitialized = true;
 
-    console.log('[ONNX Worker] ✅ 初始化完成');
+    console.log("[ONNX Worker] ✅ 初始化完成");
 
     return { success: true };
   }
@@ -87,7 +87,7 @@ class ONNXWorkerRuntime {
    */
   async loadModel(req) {
     if (!this.isInitialized) {
-      throw new Error('Worker not initialized. Call initialize() first.');
+      throw new Error("Worker not initialized. Call initialize() first.");
     }
 
     console.log(`[ONNX Worker] 加载模型 '${req.modelName}'...`);
@@ -96,30 +96,31 @@ class ONNXWorkerRuntime {
       // 创建推理会话
       const sessionOptions = {
         executionProviders: req.sessionOptions?.executionProviders ||
-          this.config?.executionProviders || ['wasm'],
-        enableProfiling: req.sessionOptions?.enableProfiling ??
-          this.config?.enableProfiling ?? false,
-        ...req.sessionOptions
+          this.config?.executionProviders || ["wasm"],
+        enableProfiling:
+          req.sessionOptions?.enableProfiling ??
+          this.config?.enableProfiling ??
+          false,
+        ...req.sessionOptions,
       };
 
       const session = await ort.InferenceSession.create(
         req.modelBuffer,
-        sessionOptions
+        sessionOptions,
       );
 
       // 保存会话
       this.models.set(req.modelName, session);
 
       console.log(`[ONNX Worker] ✅ 模型 '${req.modelName}' 加载成功`);
-      console.log('[ONNX Worker] 输入:', session.inputNames);
-      console.log('[ONNX Worker] 输出:', session.outputNames);
+      console.log("[ONNX Worker] 输入:", session.inputNames);
+      console.log("[ONNX Worker] 输出:", session.outputNames);
 
       return new ModelInfo(
         req.modelName,
         session.inputNames,
-        session.outputNames
+        session.outputNames,
       );
-
     } catch (error) {
       console.error(`[ONNX Worker] ❌ 加载模型失败:`, error);
       throw error;
@@ -134,14 +135,16 @@ class ONNXWorkerRuntime {
    */
   async runInference(req) {
     if (!this.isInitialized) {
-      throw new Error('Worker not initialized. Call initialize() first.');
+      throw new Error("Worker not initialized. Call initialize() first.");
     }
 
     console.log(`[ONNX Worker] 运行推理 '${req.modelName}'...`);
 
     const session = this.models.get(req.modelName);
     if (!session) {
-      throw new Error(`Model '${req.modelName}' not loaded. Call loadModel() first.`);
+      throw new Error(
+        `Model '${req.modelName}' not loaded. Call loadModel() first.`,
+      );
     }
 
     try {
@@ -149,11 +152,7 @@ class ONNXWorkerRuntime {
       const feeds = {};
       for (const [name, tensorData] of Object.entries(req.inputs)) {
         const ortType = this._getOrtTensorType(tensorData.type);
-        feeds[name] = new ort.Tensor(
-          ortType,
-          tensorData.data,
-          tensorData.dims
-        );
+        feeds[name] = new ort.Tensor(ortType, tensorData.data, tensorData.dims);
       }
 
       // 运行推理
@@ -161,7 +160,9 @@ class ONNXWorkerRuntime {
       const results = await session.run(feeds);
       const endTime = performance.now();
 
-      console.log(`[ONNX Worker] ✅ 推理完成 (耗时: ${(endTime - startTime).toFixed(2)}ms)`);
+      console.log(
+        `[ONNX Worker] ✅ 推理完成 (耗时: ${(endTime - startTime).toFixed(2)}ms)`,
+      );
 
       // 将 ort.Tensor 转换为 TensorData
       const output = {};
@@ -169,12 +170,11 @@ class ONNXWorkerRuntime {
         output[name] = new TensorData(
           tensor.data,
           tensor.dims,
-          this._getTensorDataType(tensor.type)
+          this._getTensorDataType(tensor.type),
         );
       }
 
       return output;
-
     } catch (error) {
       console.error(`[ONNX Worker] ❌ 推理失败:`, error);
       throw error;
@@ -185,7 +185,7 @@ class ONNXWorkerRuntime {
    * 释放资源
    */
   async dispose() {
-    console.log('[ONNX Worker] 释放资源...');
+    console.log("[ONNX Worker] 释放资源...");
 
     for (const [modelName, session] of this.models.entries()) {
       await session.release();
@@ -195,7 +195,7 @@ class ONNXWorkerRuntime {
     this.models.clear();
     this.isInitialized = false;
 
-    console.log('[ONNX Worker] ✅ 资源已释放');
+    console.log("[ONNX Worker] ✅ 资源已释放");
   }
 
   /**
@@ -204,16 +204,17 @@ class ONNXWorkerRuntime {
    */
   _getOrtTensorType(type) {
     const typeMap = {
-      'float32': 'float32',
-      'float64': 'float64',
-      'int8': 'int8',
-      'int16': 'int16',
-      'int32': 'int32',
-      'uint8': 'uint8',
-      'uint16': 'uint16',
-      'bool': 'bool'
+      float32: "float32",
+      float64: "float64",
+      int8: "int8",
+      int16: "int16",
+      int32: "int32",
+      int64: "int64",
+      uint8: "uint8",
+      uint16: "uint16",
+      bool: "bool",
     };
-    return typeMap[type] || 'float32';
+    return typeMap[type] || "float32";
   }
 
   /**
@@ -222,10 +223,11 @@ class ONNXWorkerRuntime {
    */
   _getTensorDataType(ortType) {
     // ONNX Tensor type -> our type string
-    if (ortType === 'float32' || ortType === 'float') return 'float32';
-    if (ortType === 'int32' || ortType === 'int32') return 'int32';
-    if (ortType === 'uint8') return 'uint8';
-    return 'float32'; // 默认
+    if (ortType === "float32" || ortType === "float") return "float32";
+    if (ortType === "int32" || ortType === "int32") return "int32";
+    if (ortType === "int64") return "int64";
+    if (ortType === "uint8") return "uint8";
+    return "float32"; // 默认
   }
 }
 
@@ -265,7 +267,6 @@ self.onmessage = async (e) => {
 
     // 发送成功响应
     self.postMessage(response);
-
   } catch (error) {
     // 发送错误响应
     response.type = WorkerMessageType.ERROR;
@@ -282,5 +283,5 @@ export {
   RunInferenceRequest,
   WorkerResponse,
   ModelInfo,
-  TensorData
+  TensorData,
 };

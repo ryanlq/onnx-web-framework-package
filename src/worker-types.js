@@ -8,12 +8,12 @@
  * Worker 消息类型枚举
  */
 export const WorkerMessageType = {
-  INITIALIZE: 'initialize',
-  LOAD_MODEL: 'load_model',
-  RUN_INFERENCE: 'run_inference',
-  DISPOSE: 'dispose',
-  RESULT: 'result',
-  ERROR: 'error'
+  INITIALIZE: "initialize",
+  LOAD_MODEL: "load_model",
+  RUN_INFERENCE: "run_inference",
+  DISPOSE: "dispose",
+  RESULT: "result",
+  ERROR: "error",
 };
 
 /**
@@ -43,7 +43,7 @@ export class InitializeConfig {
      * 执行提供者列表
      * @type {string[]}
      */
-    this.executionProviders = options.executionProviders || ['wasm'];
+    this.executionProviders = options.executionProviders || ["wasm"];
   }
 }
 
@@ -51,9 +51,9 @@ export class InitializeConfig {
  * 张量数据
  */
 export class TensorData {
-  constructor(data, dims, type = 'float32') {
+  constructor(data, dims, type = "float32") {
     /**
-     * 张量数据（Float32Array | Int32Array | Uint8Array）
+     * 张量数据（Float32Array | Int32Array | Uint8Array | BigInt64Array）
      */
     this.data = data;
 
@@ -65,7 +65,7 @@ export class TensorData {
 
     /**
      * 数据类型
-     * @type {'float32' | 'int32' | 'uint8'}
+     * @type {'float32' | 'int32' | 'uint8' | 'int64'}
      */
     this.type = type;
   }
