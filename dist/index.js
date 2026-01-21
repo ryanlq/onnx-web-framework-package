@@ -1,5 +1,3 @@
-import * as ort from 'onnxruntime-web';
-
 /**
  * 模型缓存管理器
  * 使用IndexedDB缓存模型文件，支持HTTP Range请求
@@ -264,8 +262,34 @@ class ModelCache {
  * 基于ONNX Runtime Web构建，支持模型缓存
  */
 
-if (typeof globalThis !== 'undefined') {
-  globalThis.ort = ort;
+
+// 确保ort在全局可用
+// 浏览器环境：通过 <script> 标签加载 UMD 版本
+// Node.js环境：通过 npm install onnxruntime-web 安装（需要构建工具处理）
+let ort = null;
+
+// 检查全局 ort（通过 script 标签加载的 UMD 版本）
+if (typeof globalThis !== 'undefined' && globalThis.ort && globalThis.ort.InferenceSession) {
+  ort = globalThis.ort;
+  console.log('✅ 使用全局 ort (UMD 版本)');
+} else {
+  // 如果没有全局 ort，尝试使用已导入的模块（构建时会处理）
+  // 注意：这要求 onnxruntime-web 在构建时被正确打包或标记为 external
+  try {
+    // 访问外部依赖（由构建工具处理）
+    ort = globalThis.ort;
+    if (!ort) {
+      throw new Error('ort not available');
+    }
+  } catch (error) {
+    throw new Error(
+      'ONNX Runtime Web 未正确加载。\n\n' +
+      '浏览器环境：请在 HTML 中添加:\n' +
+      '  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>\n\n' +
+      'Node.js环境：请运行:\n' +
+      '  npm install onnxruntime-web'
+    );
+  }
 }
 
 class ONNXWebFramework {
@@ -285,6 +309,11 @@ class ONNXWebFramework {
       // WASM路径配置（可选，默认让打包工具自动处理）
       // 只有在需要自定义路径时才设置为字符串
       wasmPaths: options.wasmPaths || null,
+
+      // 预处理和后处理钩子
+      preprocessors: options.preprocessors || {}, // { modelName: (rawInput) => tensor }
+      postprocessors: options.postprocessors || {}, // { modelName: (output) => processedOutput }
+
       ...options
     };
 
@@ -292,6 +321,18 @@ class ONNXWebFramework {
     this.modelCache = new ModelCache();
     this.models = new Map();
     this.isInitialized = false;
+
+    // 预处理和后处理器注册表
+    this.preprocessors = new Map(); // modelName -> function
+    this.postprocessors = new Map(); // modelName -> function
+
+    // 初始化预配置的处理器
+    for (const [modelName, processor] of Object.entries(this.options.preprocessors)) {
+      this.preprocessors.set(modelName, processor);
+    }
+    for (const [modelName, processor] of Object.entries(this.options.postprocessors)) {
+      this.postprocessors.set(modelName, processor);
+    }
   }
 
   /**
@@ -427,10 +468,62 @@ class ONNXWebFramework {
   }
 
   /**
-   * 执行推理（带预处理）
+   * 执行推理（带预处理和后处理）
+   * 这是一个高级 API，会自动调用注册的预处理器和后处理器
+   *
+   * @param {string} modelName - 模型名称
+   * @param {*} rawInput - 原始输入（如文本、图像等）
+   * @param {object} options - 选项
+   * @returns {Promise<*>} 处理后的输出
    */
-  async predict(modelName, rawData, options = {}) {
-    throw new Error('predict() not implemented. Please use run() directly with preprocessed tensors.');
+  async predict(modelName, rawInput, options = {}) {
+    if (!this.isInitialized) {
+      throw new Error('Framework not initialized. Call initialize() first.');
+    }
+
+    const model = this.models.get(modelName);
+    if (!model) {
+      throw new Error(`Model '${modelName}' not loaded`);
+    }
+
+    try {
+      console.log(`🔮 Running prediction with model '${modelName}'...`);
+
+      // 1. 预处理
+      let feeds;
+      const preprocessor = this.preprocessors.get(modelName);
+
+      if (preprocessor) {
+        console.log('⚙️  Running preprocessor...');
+        feeds = await preprocessor(rawInput, options);
+      } else {
+        console.warn(`⚠️  No preprocessor registered for '${modelName}', assuming input is preprocessed`);
+        // 假设输入已经是处理好的 tensor 格式
+        feeds = rawInput;
+      }
+
+      // 2. 运行推理
+      const results = await this.run(modelName, feeds);
+
+      // 3. 后处理
+      const postprocessor = this.postprocessors.get(modelName);
+      let processedResults;
+
+      if (postprocessor) {
+        console.log('⚙️  Running postprocessor...');
+        processedResults = await postprocessor(results, options);
+      } else {
+        console.warn(`⚠️  No postprocessor registered for '${modelName}', returning raw output`);
+        processedResults = results;
+      }
+
+      console.log('✅ Prediction completed');
+      return processedResults;
+
+    } catch (error) {
+      console.error(`❌ Prediction failed for model '${modelName}':`, error);
+      throw error;
+    }
   }
 
   /**
@@ -556,6 +649,44 @@ class ONNXWebFramework {
 
     await this.modelCache.cleanup();
     console.log('🧹 Cache cleared');
+  }
+
+  /**
+   * 注册预处理器
+   * @param {string} modelName - 模型名称
+   * @param {function} processor - 预处理函数 (rawInput) => feeds
+   */
+  registerPreprocessor(modelName, processor) {
+    this.preprocessors.set(modelName, processor);
+    console.log(`✅ Preprocessor registered for '${modelName}'`);
+  }
+
+  /**
+   * 注册后处理器
+   * @param {string} modelName - 模型名称
+   * @param {function} processor - 后处理函数 (output) => processedOutput
+   */
+  registerPostprocessor(modelName, processor) {
+    this.postprocessors.set(modelName, processor);
+    console.log(`✅ Postprocessor registered for '${modelName}'`);
+  }
+
+  /**
+   * 取消注册预处理器
+   * @param {string} modelName - 模型名称
+   */
+  unregisterPreprocessor(modelName) {
+    this.preprocessors.delete(modelName);
+    console.log(`🗑️  Preprocessor unregistered for '${modelName}'`);
+  }
+
+  /**
+   * 取消注册后处理器
+   * @param {string} modelName - 模型名称
+   */
+  unregisterPostprocessor(modelName) {
+    this.postprocessors.delete(modelName);
+    console.log(`🗑️  Postprocessor unregistered for '${modelName}'`);
   }
 
   /**
@@ -1105,9 +1236,281 @@ function createOnnxWorkerProxy(worker) {
 }
 
 /**
- * ONNX Web Framework - 统一入口
- * 集成Web Worker、模型缓存和显式张量管理
+ * Tokenizer 加载器和工具类
+ *
+ * 支持从 URL 加载 tokenizer 配置，并提供统一的分词接口
  */
 
-export { InitializeConfig, LoadModelRequest, ModelInfo, ONNXWebFramework, ONNXWorkerProxy, RunInferenceRequest, TensorData, WorkerMessageType, WorkerResponse, createOnnxWorkerProxy, ONNXWebFramework as default };
+/**
+ * Tokenizer 基础接口
+ * 所有 tokenizer 插件都需要实现这个接口
+ */
+class ITokenizer {
+  /**
+   * 编码：将文本转换为 tokens
+   * @param {string} text - 输入文本
+   * @returns {{ids: number[], attentionMask: number[], typeIds: number[]}}
+   */
+  encode(text) {
+    throw new Error('encode() must be implemented by subclass');
+  }
+
+  /**
+   * 解码：将 tokens 转换回文本
+   * @param {number[]} ids - token IDs
+   * @returns {string}
+   */
+  decode(ids) {
+    throw new Error('decode() must be implemented by subclass');
+  }
+
+  /**
+   * 获取词汇表大小
+   * @returns {number}
+   */
+  get vocabSize() {
+    throw new Error('vocabSize getter must be implemented by subclass');
+  }
+}
+
+/**
+ * JSON Tokenizer（HuggingFace 格式）
+ * 支持从 tokenizer.json 加载
+ */
+class JSONTokenizer extends ITokenizer {
+  constructor(config) {
+    super();
+    this.config = config;
+    this.vocab = config.model?.vocab || {};
+    this.merges = config.model?.merges || [];
+    this.addedTokens = config.added_tokens || [];
+    this._buildTrie();
+  }
+
+  /**
+   * 构建 Trie 树用于快速查找
+   * @private
+   */
+  _buildTrie() {
+    this.trie = {};
+    for (const [token, id] of Object.entries(this.vocab)) {
+      let node = this.trie;
+      for (const char of token) {
+        if (!node[char]) node[char] = {};
+        node = node[char];
+      }
+      node._end = id;
+    }
+  }
+
+  /**
+   * 编码文本
+   * @param {string} text
+   * @returns {{ids: number[], attentionMask: number[], typeIds: number[]}}
+   */
+  encode(text) {
+    // 简化的 BPE 实现（生产环境建议使用 tokenizers.js）
+    const tokens = this._bpeEncode(text);
+    const ids = tokens.map(t => this.vocab[t] || this.vocab['<unk>']);
+
+    return {
+      ids,
+      attentionMask: ids.map(() => 1),
+      typeIds: ids.map(() => 0)
+    };
+  }
+
+  /**
+   * BPE 编码（简化版）
+   * @private
+   */
+  _bpeEncode(text) {
+    // 这是一个简化的实现
+    // 实际使用时建议集成 tokenizers.js 或 @nlpjs/bpe
+    const words = text.split(/\s+/);
+    const tokens = [];
+
+    for (const word of words) {
+      // 简单的字符级分词作为 fallback
+      if (this.vocab[word] !== undefined) {
+        tokens.push(word);
+      } else {
+        // 按字符切分
+        for (const char of word) {
+          if (this.vocab[char] !== undefined) {
+            tokens.push(char);
+          }
+        }
+      }
+    }
+
+    return tokens;
+  }
+
+  /**
+   * 解码 token IDs
+   * @param {number[]} ids
+   * @returns {string}
+   */
+  decode(ids) {
+    const idToToken = Object.fromEntries(
+      Object.entries(this.vocab).map(([k, v]) => [v, k])
+    );
+    return ids.map(id => idToToken[id] || '<unk>').join(' ');
+  }
+
+  get vocabSize() {
+    return Object.keys(this.vocab).length;
+  }
+}
+
+/**
+ * Tokenizer 加载器
+ * 从 URL 或本地路径加载 tokenizer 配置
+ */
+class TokenizerLoader {
+  constructor() {
+    this.cache = new Map();
+  }
+
+  /**
+   * 从 URL 加载 tokenizer
+   * @param {string} url - tokenizer.json 或 tokenizer.txt 的 URL
+   * @param {object} options - 加载选项
+   * @returns {Promise<ITokenizer>}
+   */
+  async loadFromUrl(url, options = {}) {
+    const { useCache = true, format = 'auto' } = options;
+
+    // 检查缓存
+    if (useCache && this.cache.has(url)) {
+      return this.cache.get(url);
+    }
+
+    console.log(`📥 Loading tokenizer from: ${url}`);
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to load tokenizer: ${response.statusText}`);
+      }
+
+      const text = await response.text();
+      let tokenizer;
+
+      // 检测格式
+      const detectedFormat = format === 'auto' ? this._detectFormat(url, text) : format;
+
+      switch (detectedFormat) {
+        case 'json':
+          const config = JSON.parse(text);
+          tokenizer = new JSONTokenizer(config);
+          break;
+
+        case 'wordpiece':
+          // WordPiece 格式 (vocab.txt)
+          const vocab = text.split('\n').filter(l => l.trim());
+          tokenizer = this._createWordPieceTokenizer(vocab);
+          break;
+
+        default:
+          throw new Error(`Unsupported tokenizer format: ${detectedFormat}`);
+      }
+
+      if (useCache) {
+        this.cache.set(url, tokenizer);
+      }
+
+      console.log(`✅ Tokenizer loaded successfully (vocab size: ${tokenizer.vocabSize})`);
+
+      return tokenizer;
+    } catch (error) {
+      console.error(`❌ Failed to load tokenizer:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 从配置对象创建 tokenizer
+   * @param {object} config - tokenizer 配置
+   * @param {string} type - tokenizer 类型
+   * @returns {ITokenizer}
+   */
+  createFromConfig(config, type = 'json') {
+    switch (type) {
+      case 'json':
+        return new JSONTokenizer(config);
+      default:
+        throw new Error(`Unsupported tokenizer type: ${type}`);
+    }
+  }
+
+  /**
+   * 检测 tokenizer 格式
+   * @private
+   */
+  _detectFormat(url, content) {
+    if (url.endsWith('.json') || content.trim().startsWith('{')) {
+      return 'json';
+    }
+    if (url.endsWith('.txt') || url.includes('vocab')) {
+      return 'wordpiece';
+    }
+    return 'json'; // 默认
+  }
+
+  /**
+   * 创建 WordPiece tokenizer
+   * @private
+   */
+  _createWordPieceTokenizer(vocab) {
+    const vocabMap = {};
+    vocab.forEach((token, idx) => {
+      vocabMap[token] = idx;
+    });
+
+    return new JSONTokenizer({
+      model: { vocab: vocabMap }
+    });
+  }
+
+  /**
+   * 清除缓存
+   */
+  clearCache() {
+    this.cache.clear();
+  }
+}
+
+/**
+ * 单例实例
+ */
+const tokenizerLoader = new TokenizerLoader();
+
+/**
+ * 便捷函数：从 URL 加载 tokenizer
+ * @param {string} url
+ * @param {object} options
+ * @returns {Promise<ITokenizer>}
+ */
+async function loadTokenizer(url, options) {
+  return tokenizerLoader.loadFromUrl(url, options);
+}
+
+/**
+ * 便捷函数：从配置创建 tokenizer
+ * @param {object} config
+ * @param {string} type
+ * @returns {ITokenizer}
+ */
+function createTokenizer(config, type = 'json') {
+  return tokenizerLoader.createFromConfig(config, type);
+}
+
+/**
+ * ONNX Web Framework - 统一入口
+ * 集成Web Worker、模型缓存、预处理钩子和 Tokenizer 支持
+ */
+
+export { ITokenizer, InitializeConfig, JSONTokenizer, LoadModelRequest, ModelInfo, ONNXWebFramework, ONNXWorkerProxy, RunInferenceRequest, TensorData, TokenizerLoader, WorkerMessageType, WorkerResponse, createOnnxWorkerProxy, createTokenizer, ONNXWebFramework as default, loadTokenizer, tokenizerLoader };
 //# sourceMappingURL=index.js.map

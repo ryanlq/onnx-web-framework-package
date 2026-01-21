@@ -12,6 +12,8 @@
 - **智能缓存** - 基于 IndexedDB 的模型缓存，支持 HTTP Range 分块下载
 - **格式自动检测** - 优先使用 ORT 格式，自动回退到 ONNX 格式
 - **多种执行后端** - 支持 WASM、WebGL、WebGPU 等
+- **✨ Tokenizer 支持** - 内置 Tokenizer 加载器，支持从 URL 加载分词器
+- **✨ 预处理钩子** - 灵活的预处理/后处理机制，轻松集成 NLP 模型
 - **完整 TypeScript 支持** - 提供类型定义
 
 ## 安装
@@ -27,6 +29,28 @@ npm install onnxruntime-web
 ```
 
 ## 快速开始
+
+### 浏览器环境配置
+
+**重要**: 在浏览器中使用时，需要通过 `<script>` 标签加载 onnxruntime-web：
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <!-- 加载 onnxruntime-web (UMD 版本) -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>
+</head>
+<body>
+  <script type="module">
+    import ONNXWebFramework from './dist/index.js';
+    // 使用框架...
+  </script>
+</body>
+</html>
+```
+
+**注意**: 框架会优先使用全局的 `ort` 对象（通过 script 标签加载），如果不存在则尝试导入模块。
 
 ### 方式一：主线程模式（简单场景）
 
@@ -325,6 +349,147 @@ await framework.loadModel('model', 'model.onnx', {
 });
 ```
 
+## ✨ Tokenizer 和预处理钩子
+
+框架 v2.1.0+ 引入了强大的预处理和后处理机制，让你可以轻松集成 NLP 模型。
+
+### 使用 Tokenizer
+
+框架内置了 Tokenizer 加载器，支持从 URL 加载 HuggingFace 格式的 tokenizer.json：
+
+```javascript
+import { loadTokenizer } from 'onnx-web-framework';
+
+// 从 URL 加载 tokenizer
+const tokenizer = await loadTokenizer('https://example.com/tokenizer.json');
+
+// 编码文本
+const encoded = tokenizer.encode('Hello, world!');
+console.log(encoded.ids);           // [15496, 11, 1515, 0]
+console.log(encoded.attentionMask); // [1, 1, 1, 1]
+
+// 解码 tokens
+const text = tokenizer.decode([15496, 11, 1515, 0]);
+console.log(text); // "Hello, world!"
+```
+
+### 注册预处理器和后处理器
+
+使用 `registerPreprocessor` 和 `registerPostprocessor` 方法注册自定义处理逻辑：
+
+```javascript
+import ONNXWebFramework, { loadTokenizer } from 'onnx-web-framework';
+
+const framework = new ONNXWebFramework();
+await framework.initialize();
+
+// 加载 tokenizer
+const tokenizer = await loadTokenizer('https://example.com/bert-tokenizer.json');
+
+// 注册预处理器
+framework.registerPreprocessor('bert-model', async (text, options) => {
+  // 1. 分词
+  const tokens = tokenizer.encode(text);
+
+  // 2. 转换为 ONNX Runtime Tensor
+  const { ort } = globalThis;
+  return {
+    input_ids: new ort.Tensor('int64', BigInt64Array.from(tokens.ids.map(BigInt)), [1, tokens.ids.length]),
+    attention_mask: new ort.Tensor('int64', BigInt64Array.from(tokens.attentionMask.map(BigInt)), [1, tokens.attentionMask.length]),
+    token_type_ids: new ort.Tensor('int64', BigInt64Array.from(tokens.typeIds.map(BigInt)), [1, tokens.typeIds.length])
+  };
+});
+
+// 注册后处理器
+framework.registerPostprocessor('bert-model', async (output, options) => {
+  // 处理模型输出
+  const logits = Object.values(output)[0];
+  const probs = softmax(Array.from(logits.data));
+
+  return {
+    prediction: probs.indexOf(Math.max(...probs)),
+    confidence: Math.max(...probs)
+  };
+});
+
+// 加载模型
+await framework.loadModel('bert-model', 'bert-classifier.onnx');
+
+// 使用 predict() 方法，会自动调用预处理器和后处理器
+const result = await framework.predict('bert-model', 'This is amazing!');
+console.log(result); // { prediction: 1, confidence: 0.95 }
+```
+
+### 在构造函数中配置处理器
+
+也可以在创建框架实例时直接配置：
+
+```javascript
+const framework = new ONNXWebFramework({
+  preprocessors: {
+    'my-model': async (input) => {
+      // 预处理逻辑
+      return { input: processedTensor };
+    }
+  },
+  postprocessors: {
+    'my-model': async (output) => {
+      // 后处理逻辑
+      return processedOutput;
+    }
+  }
+});
+```
+
+### 自定义 Tokenizer
+
+如果内置 tokenizer 不满足需求，可以实现 `ITokenizer` 接口：
+
+```javascript
+import { ITokenizer } from 'onnx-web-framework';
+
+class CustomTokenizer extends ITokenizer {
+  encode(text) {
+    // 自定义分词逻辑
+    return {
+      ids: [1, 2, 3],
+      attentionMask: [1, 1, 1],
+      typeIds: [0, 0, 0]
+    };
+  }
+
+  decode(ids) {
+    // 自定义解码逻辑
+    return 'decoded text';
+  }
+
+  get vocabSize() {
+    return 30000;
+  }
+}
+
+// 使用自定义 tokenizer
+const tokenizer = new CustomTokenizer();
+framework.registerPreprocessor('my-model', async (text) => {
+  const tokens = tokenizer.encode(text);
+  // ... 转换为 tensor
+});
+```
+
+### predict() vs run()
+
+- **run()** - 底层 API，需要手动预处理输入
+- **predict()** - 高级 API，自动调用预处理器和后处理器
+
+```javascript
+// 使用 run() - 需要手动预处理
+const feeds = { input: new ort.Tensor('float32', data, shape) };
+const results = await framework.run('my-model', feeds);
+
+// 使用 predict() - 自动处理
+const results = await framework.predict('my-model', rawText);
+```
+
 ## 工具集成
 
 ### Vite
@@ -368,10 +533,11 @@ module.exports = {
 
 ## 注意事项
 
-1. **predict() 方法未实现** - 当前版本中 `predict()` 方法会抛出错误，请使用 `run()` 方法并自行预处理输入
+1. **predict() vs run()** - `predict()` 是高级 API，需要注册预处理器和后处理器；`run()` 是底层 API，需要手动预处理输入
 2. **主线程阻塞** - 主线程模式在推理时可能会阻塞 UI，推荐使用 Web Worker 模式
 3. **WASM 路径** - 确保正确配置 ONNX Runtime Web 的 WASM 文件路径
 4. **内存管理** - 使用完毕后记得调用 `dispose()` 释放资源
+5. **Tokenizer 生产环境** - 内置的 BPE 实现是简化版，生产环境建议集成 `tokenizers.js` 或 `@nlpjs/bpe` 等专业库
 
 ## 开发
 

@@ -6,9 +6,32 @@
 import ModelCache from './model-cache.js';
 
 // 确保ort在全局可用
-import * as ort from 'onnxruntime-web';
-if (typeof globalThis !== 'undefined') {
-  globalThis.ort = ort;
+// 浏览器环境：通过 <script> 标签加载 UMD 版本
+// Node.js环境：通过 npm install onnxruntime-web 安装（需要构建工具处理）
+let ort = null;
+
+// 检查全局 ort（通过 script 标签加载的 UMD 版本）
+if (typeof globalThis !== 'undefined' && globalThis.ort && globalThis.ort.InferenceSession) {
+  ort = globalThis.ort;
+  console.log('✅ 使用全局 ort (UMD 版本)');
+} else {
+  // 如果没有全局 ort，尝试使用已导入的模块（构建时会处理）
+  // 注意：这要求 onnxruntime-web 在构建时被正确打包或标记为 external
+  try {
+    // 访问外部依赖（由构建工具处理）
+    ort = globalThis.ort;
+    if (!ort) {
+      throw new Error('ort not available');
+    }
+  } catch (error) {
+    throw new Error(
+      'ONNX Runtime Web 未正确加载。\n\n' +
+      '浏览器环境：请在 HTML 中添加:\n' +
+      '  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>\n\n' +
+      'Node.js环境：请运行:\n' +
+      '  npm install onnxruntime-web'
+    );
+  }
 }
 
 class ONNXWebFramework {
@@ -28,6 +51,11 @@ class ONNXWebFramework {
       // WASM路径配置（可选，默认让打包工具自动处理）
       // 只有在需要自定义路径时才设置为字符串
       wasmPaths: options.wasmPaths || null,
+
+      // 预处理和后处理钩子
+      preprocessors: options.preprocessors || {}, // { modelName: (rawInput) => tensor }
+      postprocessors: options.postprocessors || {}, // { modelName: (output) => processedOutput }
+
       ...options
     };
 
@@ -35,6 +63,18 @@ class ONNXWebFramework {
     this.modelCache = new ModelCache();
     this.models = new Map();
     this.isInitialized = false;
+
+    // 预处理和后处理器注册表
+    this.preprocessors = new Map(); // modelName -> function
+    this.postprocessors = new Map(); // modelName -> function
+
+    // 初始化预配置的处理器
+    for (const [modelName, processor] of Object.entries(this.options.preprocessors)) {
+      this.preprocessors.set(modelName, processor);
+    }
+    for (const [modelName, processor] of Object.entries(this.options.postprocessors)) {
+      this.postprocessors.set(modelName, processor);
+    }
   }
 
   /**
@@ -170,10 +210,62 @@ class ONNXWebFramework {
   }
 
   /**
-   * 执行推理（带预处理）
+   * 执行推理（带预处理和后处理）
+   * 这是一个高级 API，会自动调用注册的预处理器和后处理器
+   *
+   * @param {string} modelName - 模型名称
+   * @param {*} rawInput - 原始输入（如文本、图像等）
+   * @param {object} options - 选项
+   * @returns {Promise<*>} 处理后的输出
    */
-  async predict(modelName, rawData, options = {}) {
-    throw new Error('predict() not implemented. Please use run() directly with preprocessed tensors.');
+  async predict(modelName, rawInput, options = {}) {
+    if (!this.isInitialized) {
+      throw new Error('Framework not initialized. Call initialize() first.');
+    }
+
+    const model = this.models.get(modelName);
+    if (!model) {
+      throw new Error(`Model '${modelName}' not loaded`);
+    }
+
+    try {
+      console.log(`🔮 Running prediction with model '${modelName}'...`);
+
+      // 1. 预处理
+      let feeds;
+      const preprocessor = this.preprocessors.get(modelName);
+
+      if (preprocessor) {
+        console.log('⚙️  Running preprocessor...');
+        feeds = await preprocessor(rawInput, options);
+      } else {
+        console.warn(`⚠️  No preprocessor registered for '${modelName}', assuming input is preprocessed`);
+        // 假设输入已经是处理好的 tensor 格式
+        feeds = rawInput;
+      }
+
+      // 2. 运行推理
+      const results = await this.run(modelName, feeds);
+
+      // 3. 后处理
+      const postprocessor = this.postprocessors.get(modelName);
+      let processedResults;
+
+      if (postprocessor) {
+        console.log('⚙️  Running postprocessor...');
+        processedResults = await postprocessor(results, options);
+      } else {
+        console.warn(`⚠️  No postprocessor registered for '${modelName}', returning raw output`);
+        processedResults = results;
+      }
+
+      console.log('✅ Prediction completed');
+      return processedResults;
+
+    } catch (error) {
+      console.error(`❌ Prediction failed for model '${modelName}':`, error);
+      throw error;
+    }
   }
 
   /**
@@ -299,6 +391,44 @@ class ONNXWebFramework {
 
     await this.modelCache.cleanup();
     console.log('🧹 Cache cleared');
+  }
+
+  /**
+   * 注册预处理器
+   * @param {string} modelName - 模型名称
+   * @param {function} processor - 预处理函数 (rawInput) => feeds
+   */
+  registerPreprocessor(modelName, processor) {
+    this.preprocessors.set(modelName, processor);
+    console.log(`✅ Preprocessor registered for '${modelName}'`);
+  }
+
+  /**
+   * 注册后处理器
+   * @param {string} modelName - 模型名称
+   * @param {function} processor - 后处理函数 (output) => processedOutput
+   */
+  registerPostprocessor(modelName, processor) {
+    this.postprocessors.set(modelName, processor);
+    console.log(`✅ Postprocessor registered for '${modelName}'`);
+  }
+
+  /**
+   * 取消注册预处理器
+   * @param {string} modelName - 模型名称
+   */
+  unregisterPreprocessor(modelName) {
+    this.preprocessors.delete(modelName);
+    console.log(`🗑️  Preprocessor unregistered for '${modelName}'`);
+  }
+
+  /**
+   * 取消注册后处理器
+   * @param {string} modelName - 模型名称
+   */
+  unregisterPostprocessor(modelName) {
+    this.postprocessors.delete(modelName);
+    console.log(`🗑️  Postprocessor unregistered for '${modelName}'`);
   }
 
   /**

@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BGE 文本嵌入模型演示 - ONNX Web Framework</title>
+
+  <!-- 重要：必须在任何使用 ort 的代码之前加载 -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      overflow: hidden;
+    }
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 30px;
+      text-align: center;
+    }
+    .header h1 {
+      font-size: 28px;
+      margin-bottom: 10px;
+    }
+    .header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+    .content {
+      padding: 30px;
+    }
+    .status-bar {
+      background: #f8f9fa;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      border-left: 4px solid #667eea;
+    }
+    .status-item {
+      display: flex;
+      align-items: center;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .status-item:last-child {
+      margin-bottom: 0;
+    }
+    .status-icon {
+      margin-right: 10px;
+      font-size: 16px;
+    }
+    .status-icon.pending { color: #6c757d; }
+    .status-icon.loading { color: #007bff; }
+    .status-icon.success { color: #28a745; }
+    .status-icon.error { color: #dc3545; }
+    .input-section {
+      margin-bottom: 25px;
+    }
+    .input-section label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: #333;
+      font-size: 16px;
+    }
+    textarea {
+      width: 100%;
+      padding: 15px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      font-size: 14px;
+      font-family: inherit;
+      resize: vertical;
+      min-height: 100px;
+      transition: border-color 0.3s;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+    .button-group {
+      display: flex;
+      gap: 10px;
+      margin-top: 15px;
+    }
+    button {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+    }
+    .btn-primary:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .btn-secondary {
+      background: #6c757d;
+      color: white;
+    }
+    .btn-secondary:hover {
+      background: #5a6268;
+    }
+    .output-section {
+      background: #f8f9fa;
+      padding: 20px;
+      border-radius: 8px;
+      margin-top: 20px;
+    }
+    .output-section h3 {
+      font-size: 16px;
+      margin-bottom: 15px;
+      color: #333;
+    }
+    .output-content {
+      background: white;
+      padding: 15px;
+      border-radius: 6px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+    .comparison-section {
+      margin-top: 20px;
+    }
+    .comparison-item {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      border-left: 4px solid #667eea;
+    }
+    .comparison-text {
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: #333;
+    }
+    .similarity-score {
+      font-size: 24px;
+      font-weight: 700;
+      color: #667eea;
+    }
+    .loading-spinner {
+      display: inline-block;
+      width: 14px;
+      height: 14px;
+      border: 2px solid #f3f3f3;
+      border-top: 2px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin-right: 8px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .progress-bar {
+      width: 100%;
+      height: 6px;
+      background: #e0e0e0;
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+      transition: width 0.3s;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🤖 BGE 文本嵌入模型演示</h1>
+      <p>基于 ONNX Web Framework 的中文文本向量化 | BGE-small-zh-v1.5-INT8</p>
+    </div>
+
+    <div class="content">
+      <!-- 状态栏 -->
+      <div class="status-bar">
+        <div class="status-item">
+          <span class="status-icon pending" id="status-framework">⚪</span>
+          <span>框架初始化</span>
+        </div>
+        <div class="status-item">
+          <span class="status-icon pending" id="status-tokenizer">⚪</span>
+          <span>Tokenizer 加载</span>
+        </div>
+        <div class="status-item">
+          <span class="status-icon pending" id="status-model">⚪</span>
+          <span>模型加载</span>
+        </div>
+        <div class="progress-bar">
+          <div class="progress-fill" id="progress-fill" style="width: 0%"></div>
+        </div>
+      </div>
+
+      <!-- 单文本输入 -->
+      <div class="input-section">
+        <label>📝 输入文本</label>
+        <textarea id="inputText" placeholder="请输入要向量化的文本...">人工智能技术正在改变世界</textarea>
+        <div class="button-group">
+          <button id="embedBtn" class="btn-primary" onclick="embedText()" disabled>
+            生成嵌入向量
+          </button>
+          <button class="btn-secondary" onclick="loadExample()">
+            加载示例
+          </button>
+        </div>
+      </div>
+
+      <!-- 输出区域 -->
+      <div class="output-section" id="outputSection" style="display:none;">
+        <h3>📊 嵌入向量结果</h3>
+        <div class="output-content" id="output"></div>
+      </div>
+
+      <!-- 相似度比较 -->
+      <div class="input-section" style="margin-top: 25px;">
+        <label>🔍 文本相似度比较</label>
+        <textarea id="compareText1" placeholder="文本 1..." style="margin-bottom: 10px;">人工智能技术正在改变世界</textarea>
+        <textarea id="compareText2" placeholder="文本 2...">机器学习是人工智能的重要分支</textarea>
+        <div class="button-group">
+          <button id="compareBtn" class="btn-primary" onclick="compareTexts()" disabled>
+            计算相似度
+          </button>
+        </div>
+      </div>
+
+      <div id="comparisonResult"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    import ONNXWebFramework, { loadTokenizer } from '../dist/index.js';
+
+    let framework = null;
+    let tokenizer = null;
+    let isReady = false;
+
+    // 更新状态图标
+    function updateStatus(id, status) {
+      const el = document.getElementById(id);
+      el.className = 'status-icon ' + status;
+      switch(status) {
+        case 'loading':
+          el.innerHTML = '⏳';
+          break;
+        case 'success':
+          el.innerHTML = '✅';
+          break;
+        case 'error':
+          el.innerHTML = '❌';
+          break;
+        default:
+          el.innerHTML = '⚪';
+      }
+    }
+
+    // 更新进度条
+    function updateProgress(percent) {
+      document.getElementById('progress-fill').style.width = percent + '%';
+    }
+
+    // 初始化
+    async function init() {
+      try {
+        console.log('🚀 开始初始化...');
+
+        // 1. 初始化框架
+        updateStatus('status-framework', 'loading');
+        framework = new ONNXWebFramework({
+          executionProviders: ['wasm'],
+          enableCache: true,
+          debug: true
+        });
+
+        await framework.initialize();
+        updateStatus('status-framework', 'success');
+        updateProgress(33);
+        console.log('✅ 框架初始化成功');
+
+        // 2. 加载 tokenizer
+        updateStatus('status-tokenizer', 'loading');
+        console.log('📥 加载 tokenizer...');
+
+        const tokenizerUrl = 'https://www.modelscope.cn/models/duchao/bge-small-zh-v1.5/resolve/master/tokenizer.json';
+        tokenizer = await loadTokenizer(tokenizerUrl, { useCache: true });
+
+        console.log('✅ Tokenizer 加载成功');
+        console.log('词汇表大小:', tokenizer.vocabSize);
+        updateStatus('status-tokenizer', 'success');
+        updateProgress(66);
+
+        // 3. 注册预处理器
+        framework.registerPreprocessor('bge-model', async (text, options) => {
+          console.log('⚙️ 预处理文本:', text);
+
+          // 使用 tokenizer 分词
+          const tokens = tokenizer.encode(text);
+          console.log('Tokens:', tokens.ids.slice(0, 20), '...(前20个)');
+
+          // BGE 模型需要的输入格式
+          const { ort } = globalThis;
+          const maxLength = 512;
+
+          // 截断或填充
+          let inputIds = tokens.ids;
+          let attentionMask = tokens.attentionMask;
+
+          if (inputIds.length > maxLength) {
+            inputIds = inputIds.slice(0, maxLength);
+            attentionMask = attentionMask.slice(0, maxLength);
+          }
+
+          // 转换为 Tensor（int64）
+          const feeds = {
+            input_ids: new ort.Tensor(
+              'int64',
+              BigInt64Array.from(inputIds.map(BigInt)),
+              [1, inputIds.length]
+            ),
+            attention_mask: new ort.Tensor(
+              'int64',
+              BigInt64Array.from(attentionMask.map(BigInt)),
+              [1, attentionMask.length]
+            ),
+            token_type_ids: new ort.Tensor(
+              'int64',
+              BigInt64Array.from(tokens.typeIds.slice(0, inputIds.length).map(BigInt)),
+              [1, inputIds.length]
+            )
+          };
+
+          console.log('✅ 预处理完成，序列长度:', inputIds.length);
+          return feeds;
+        });
+
+        // 注册后处理器
+        framework.registerPostprocessor('bge-model', async (output, options) => {
+          console.log('⚙️ 后处理输出...');
+
+          // 获取嵌入向量
+          const embeddingTensor = Object.values(output)[0];
+          const embedding = Array.from(embeddingTensor.data);
+
+          console.log('✅ 后处理完成，向量维度:', embedding.length);
+
+          // 归一化（L2 normalization）
+          const norm = Math.sqrt(embedding.reduce((sum, val) => sum + val * val, 0));
+          const normalized = embedding.map(val => val / norm);
+
+          return {
+            dimension: normalized.length,
+            embedding: normalized.slice(0, 10), // 只返回前10个值用于显示
+            full_embedding: normalized // 完整向量
+          };
+        });
+
+        // 4. 加载模型
+        updateStatus('status-model', 'loading');
+        console.log('📥 加载 BGE 模型...');
+
+        const modelUrl = 'https://www.modelscope.cn/models/duchao/bge-small-zh-v1.5/resolve/master/onnx/model_int8.ort';
+        await framework.loadModel('bge-model', modelUrl);
+
+        console.log('✅ 模型加载成功');
+        updateStatus('status-model', 'success');
+        updateProgress(100);
+
+        // 启用按钮
+        document.getElementById('embedBtn').disabled = false;
+        document.getElementById('compareBtn').disabled = false;
+        isReady = true;
+
+        console.log('🎉 所有组件准备完毕！');
+
+      } catch (error) {
+        console.error('❌ 初始化失败:', error);
+        updateStatus('status-framework', 'error');
+        updateStatus('status-tokenizer', 'error');
+        updateStatus('status-model', 'error');
+
+        showError('初始化失败: ' + error.message);
+      }
+    }
+
+    // 生成嵌入向量
+    async function embedText() {
+      if (!isReady) {
+        showError('框架尚未初始化完成');
+        return;
+      }
+
+      const text = document.getElementById('inputText').value.trim();
+      if (!text) {
+        showError('请输入文本');
+        return;
+      }
+
+      try {
+        const btn = document.getElementById('embedBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="loading-spinner"></span>处理中...';
+
+        console.log('🔮 开始推理...');
+        const result = await framework.predict('bge-model', text);
+        console.log('✅ 推理完成');
+
+        // 显示结果
+        const outputSection = document.getElementById('outputSection');
+        const output = document.getElementById('output');
+
+        outputSection.style.display = 'block';
+        output.innerHTML = `
+向量维度: ${result.dimension}
+
+前10个值:
+${result.embedding.map((v, i) => `  [${i}]: ${v.toFixed(6)}`).join('\n')}
+
+...
+（完整向量共 ${result.dimension} 维，已归一化）
+
+提示：这是文本的语义嵌入向量，可用于：
+  • 文本相似度计算
+  • 语义搜索
+  • 文本聚类
+  • 推荐系统
+        `;
+
+        btn.disabled = false;
+        btn.innerHTML = '生成嵌入向量';
+
+      } catch (error) {
+        console.error('❌ 推理失败:', error);
+        showError('推理失败: ' + error.message);
+        document.getElementById('embedBtn').disabled = false;
+        document.getElementById('embedBtn').innerHTML = '生成嵌入向量';
+      }
+    }
+
+    // 比较文本相似度
+    async function compareTexts() {
+      if (!isReady) {
+        showError('框架尚未初始化完成');
+        return;
+      }
+
+      const text1 = document.getElementById('compareText1').value.trim();
+      const text2 = document.getElementById('compareText2').value.trim();
+
+      if (!text1 || !text2) {
+        showError('请输入两个文本');
+        return;
+      }
+
+      try {
+        const btn = document.getElementById('compareBtn');
+        btn.disabled = true;
+        btn.innerHTML = '<span class="loading-spinner"></span>计算中...';
+
+        console.log('🔍 计算文本相似度...');
+
+        // 获取两个文本的嵌入
+        const result1 = await framework.predict('bge-model', text1);
+        const result2 = await framework.predict('bge-model', text2);
+
+        // 计算余弦相似度
+        const similarity = cosineSimilarity(result1.full_embedding, result2.full_embedding);
+
+        console.log('✅ 相似度计算完成:', similarity);
+
+        // 显示结果
+        const resultDiv = document.getElementById('comparisonResult');
+        const similarityPercent = (similarity * 100).toFixed(2);
+
+        let similarityLevel = '';
+        if (similarity > 0.8) {
+          similarityLevel = '🟢 非常相似';
+        } else if (similarity > 0.6) {
+          similarityLevel = '🟡 相似';
+        } else if (similarity > 0.4) {
+          similarityLevel = '🟠 部分相似';
+        } else {
+          similarityLevel = '🔴 不太相似';
+        }
+
+        resultDiv.innerHTML = `
+          <div class="comparison-section">
+            <div class="comparison-item">
+              <div class="comparison-text">文本 1: ${text1}</div>
+              <div class="comparison-text">文本 2: ${text2}</div>
+              <div style="margin-top: 15px;">
+                <div style="font-size: 14px; color: #666; margin-bottom: 5px;">余弦相似度</div>
+                <div class="similarity-score">${similarityPercent}%</div>
+                <div style="font-size: 16px; margin-top: 5px;">${similarityLevel}</div>
+              </div>
+            </div>
+          </div>
+        `;
+
+        btn.disabled = false;
+        btn.innerHTML = '计算相似度';
+
+      } catch (error) {
+        console.error('❌ 相似度计算失败:', error);
+        showError('计算失败: ' + error.message);
+        document.getElementById('compareBtn').disabled = false;
+        document.getElementById('compareBtn').innerHTML = '计算相似度';
+      }
+    }
+
+    // 余弦相似度计算
+    function cosineSimilarity(vec1, vec2) {
+      let dotProduct = 0;
+      let norm1 = 0;
+      let norm2 = 0;
+
+      for (let i = 0; i < vec1.length; i++) {
+        dotProduct += vec1[i] * vec2[i];
+        norm1 += vec1[i] * vec1[i];
+        norm2 += vec2[i] * vec2[i];
+      }
+
+      return dotProduct / (Math.sqrt(norm1) * Math.sqrt(norm2));
+    }
+
+    // 加载示例
+    function loadExample() {
+      document.getElementById('inputText').value = '人工智能技术正在改变世界';
+      document.getElementById('compareText1').value = '人工智能技术正在改变世界';
+      document.getElementById('compareText2').value = '机器学习是人工智能的重要分支';
+    }
+
+    // 显示错误
+    function showError(message) {
+      const outputSection = document.getElementById('outputSection');
+      const output = document.getElementById('output');
+
+      outputSection.style.display = 'block';
+      output.innerHTML = `<span style="color: #dc3545;">❌ ${message}</span>`;
+    }
+
+    // 导出到全局
+    window.embedText = embedText;
+    window.compareTexts = compareTexts;
+    window.loadExample = loadExample;
+
+    // 页面加载时初始化
+    init();
+  </script>
+</body>
+</html>

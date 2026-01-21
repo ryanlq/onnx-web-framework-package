@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NLP 模型示例 - ONNX Web Framework</title>
+
+  <!-- 加载 onnxruntime-web (UMD 版本) -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 20px;
+      line-height: 1.6;
+    }
+    .container {
+      background: #f5f5f5;
+      padding: 20px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+    }
+    textarea {
+      width: 100%;
+      height: 100px;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+      font-family: monospace;
+      resize: vertical;
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-top: 10px;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    button:disabled {
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .output {
+      background: white;
+      padding: 15px;
+      border-radius: 4px;
+      margin-top: 10px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .loading {
+      color: #666;
+    }
+    .error {
+      color: #dc3545;
+    }
+    .success {
+      color: #28a745;
+    }
+  </style>
+</head>
+<body>
+  <h1>🤖 NLP 模型推理示例</h1>
+  <p>演示如何使用 ONNX Web Framework 和 Tokenizer 进行文本分类任务</p>
+
+  <div class="container">
+    <h2>输入文本</h2>
+    <textarea id="inputText" placeholder="请输入要分类的文本...">
+这部电影真的很好看，剧情紧凑，演员演技出色，强烈推荐！
+    </textarea>
+    <button id="runBtn" onclick="runInference()">运行推理</button>
+  </div>
+
+  <div class="container">
+    <h2>输出结果</h2>
+    <div id="output" class="output">等待运行...</div>
+  </div>
+
+  <script type="module">
+    import ONNXWebFramework, { loadTokenizer } from './dist/onnx-web-framework.es.js';
+
+    let framework = null;
+    let tokenizer = null;
+
+    // 初始化
+    async function init() {
+      try {
+        output('🚀 初始化框架...', 'loading');
+
+        // 创建框架实例
+        framework = new ONNXWebFramework({
+          executionProviders: ['wasm'],
+          enableCache: true
+        });
+
+        await framework.initialize();
+        output('✅ 框架初始化成功', 'success');
+
+        // 加载 tokenizer（示例 URL，实际使用时替换为真实的 tokenizer.json）
+        // tokenizer = await loadTokenizer('https://example.com/tokenizer.json');
+
+        output('📝 准备加载模型...', 'loading');
+
+        // 加载模型（示例 URL，实际使用时替换为真实的模型）
+        // await framework.loadModel('text-classifier', 'models/text-classifier.onnx');
+
+        output('✅ 准备工作完成！\n\n注意：这是一个示例代码，实际使用时需要：\n1. 替换为真实的 tokenizer.json URL\n2. 替换为真实的模型文件 URL\n3. 根据模型输入输出格式调整预处理器', 'success');
+
+      } catch (error) {
+        output(`❌ 初始化失败: ${error.message}`, 'error');
+        console.error(error);
+      }
+    }
+
+    // 注册预处理器
+    function registerPreprocessors() {
+      // 文本分类预处理器
+      framework.registerPreprocessor('text-classifier', async (text, options) => {
+        output('⚙️  预处理文本...', 'loading');
+
+        // 1. 使用 tokenizer 分词
+        const tokens = tokenizer.encode(text);
+
+        // 2. 转换为 ONNX Runtime Tensor
+        const { ort } = globalThis;
+        const feeds = {
+          input_ids: new ort.Tensor('int64', BigInt64Array.from(tokens.ids.map(BigInt)), [1, tokens.ids.length]),
+          attention_mask: new ort.Tensor('int64', BigInt64Array.from(tokens.attentionMask.map(BigInt)), [1, tokens.attentionMask.length])
+        };
+
+        output(`✅ 预处理完成，tokens: ${tokens.ids.length}`, 'success');
+        return feeds;
+      });
+
+      // 文本分类后处理器
+      framework.registerPostprocessor('text-classifier', async (output, options) => {
+        output('⚙️  后处理输出...', 'loading');
+
+        // 假设模型输出是 logits，转换为概率
+        const logits = Object.values(output)[0]; // 获取第一个输出
+        const probs = softmax(Array.from(logits.data));
+
+        // 获取预测结果
+        const predictedClass = probs.indexOf(Math.max(...probs));
+        const confidence = probs[predictedClass];
+
+        const result = {
+          class: predictedClass,
+          confidence: confidence,
+          probabilities: probs
+        };
+
+        output(`✅ 预测完成: 类别 ${result.class}, 置信度 ${(result.confidence * 100).toFixed(2)}%`, 'success');
+        return result;
+      });
+    }
+
+    // Softmax 函数
+    function softmax(arr) {
+      const max = Math.max(...arr);
+      const exps = arr.map(x => Math.exp(x - max));
+      const sum = exps.reduce((a, b) => a + b);
+      return exps.map(x => x / sum);
+    }
+
+    // 运行推理
+    async function runInference() {
+      if (!framework) {
+        output('❌ 框架未初始化', 'error');
+        return;
+      }
+
+      const inputText = document.getElementById('inputText').value;
+
+      try {
+        // 使用 predict() API，会自动调用预处理器和后处理器
+        const result = await framework.predict('text-classifier', inputText);
+
+        // 显示结果
+        output(`🎯 预测结果：\n${JSON.stringify(result, null, 2)}`, 'success');
+
+      } catch (error) {
+        output(`❌ 推理失败: ${error.message}`, 'error');
+        console.error(error);
+      }
+    }
+
+    // 输出辅助函数
+    function output(message, type = '') {
+      const outputEl = document.getElementById('output');
+      outputEl.textContent = message;
+      outputEl.className = 'output ' + type;
+    }
+
+    // 导出到全局
+    window.runInference = runInference;
+
+    // 页面加载时初始化
+    init().then(() => {
+      registerPreprocessors();
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>ORT 加载测试</title>
+
+  <!-- 1. 加载 onnxruntime-web -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.18.0/dist/ort.min.js"></script>
+</head>
+<body>
+  <h1>ONNX Runtime Web 加载测试</h1>
+  <div id="status">等待加载...</div>
+  <div id="ort-info"></div>
+
+  <script type="module">
+    const statusEl = document.getElementById('status');
+    const infoEl = document.getElementById('ort-info');
+
+    // 2. 测试全局 ort 是否可用
+    setTimeout(() => {
+      if (typeof ort !== 'undefined' && ort.InferenceSession) {
+        statusEl.innerHTML = '✅ ort 已成功加载！';
+        statusEl.style.color = 'green';
+
+        infoEl.innerHTML = `
+          <h3>ort 对象信息：</h3>
+          <ul>
+            <li>ort 类型: ${typeof ort}</li>
+            <li>ort.InferenceSession: ${typeof ort.InferenceSession}</li>
+            <li>ort.env: ${typeof ort.env}</li>
+          </ul>
+          <p>✅ 现在可以导入 ONNX Web Framework 了！</p>
+        `;
+
+        // 3. 测试导入框架
+        import('../dist/index.js').then(module => {
+          infoEl.innerHTML += `
+            <h3>ONNX Web Framework 导入成功！</h3>
+            <p>导出的内容: ${Object.keys(module).join(', ')}</p>
+          `;
+        }).catch(err => {
+          infoEl.innerHTML += `<p style="color:red">❌ 导入失败: ${err.message}</p>`;
+        });
+
+      } else {
+        statusEl.innerHTML = '❌ ort 未正确加载';
+        statusEl.style.color = 'red';
+        infoEl.innerHTML = `<p>请检查网络连接或 CDN URL</p>`;
+      }
+    }, 1000); // 等待 1 秒确保脚本加载完成
+  </script>
+</body>
+</html>
